@@ -1,5 +1,6 @@
 // Energy app front end: no build step, no framework. One EventSource feeds every number.
-// Rules shown on screen: only measured values in tiles (the one calculated number says so), every
+// Rules shown on screen: only measured values in tiles (calculated and forecast numbers say so with a
+// chip and "≈"), every
 // value says whether it is live or "vandaag 00:00 – nu", and an empty value is "—" with a reason.
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -194,6 +195,31 @@ function renderToday() {
   setV("bespaard", s && isNum(s.savings_eur) ? `≈ ${eur(s.savings_eur)}` : "—");
   setV("geladen", t && isNum(t.battery_charged_kwh) ? `${num(t.battery_charged_kwh)}<small>· ${num(t.battery_discharged_kwh)} kWh</small>` : "—");
   $$("[data-flow] svg").forEach((svg) => renderFlow(svg, state.live?.data, t));
+  renderForecast();
+}
+
+const weekday = (offsetDays) => new Date(Date.now() + offsetDays * 86400000).toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "short", timeZone: TZ });
+const approx = (x) => (isNum(x) ? `≈ ${kwh(x)}` : "—");
+
+function forecastAge() {
+  const f = state.today?.forecast;
+  return f?.fetched_at ? (Date.now() - new Date(f.fetched_at)) / 1000 : null;
+}
+
+function renderForecast() {
+  const f = state.today?.forecast || null;
+  const t = state.today?.data || null;
+  const label = $("#fc-label");
+  const age = forecastAge();
+  const stale = !isNum(age) || age > (state.config.staleAfter?.forecast ?? 10800);
+  label.textContent = !f?.fetched_at ? "— · nog geen verwachting opgehaald"
+    : stale ? `verouderd · opgehaald ${hm(f.fetched_at)}` : `Open-Meteo · ${hm(f.fetched_at)}`;
+  label.classList.toggle("stale", stale);
+  setV("fc-rest", approx(f?.rest_today_kwh));
+  setV("fc-rest-sub", f && isNum(f.today_kwh)
+    ? `hele dag ≈ ${num(f.today_kwh)}${t && isNum(t.generated_kwh) ? ` · opgewekt ${num(t.generated_kwh)} kWh` : " kWh"}` : "");
+  setV("fc-morgen", f && f.tomorrow_hours >= 24 ? approx(f.tomorrow_kwh) : "—");
+  setV("fc-morgen-sub", f && f.tomorrow_hours >= 24 ? weekday(1) : "nog geen verwachting voor morgen");
 }
 
 function renderFreshness() {
@@ -229,6 +255,7 @@ function sources() {
     { name: "Gasmeter", age: secondsBetween(now, d.gas_time), limit: st.gas ?? 1200 },
   ];
   out.push({ name: "Buitentemperatuur", age: secondsBetween(now, d.outdoor_time), limit: st.outdoor ?? 10800 });
+  out.push({ name: "Zonverwachting", age: forecastAge(), limit: st.forecast ?? 10800 });
   out.forEach((s) => { s.ok = isNum(s.age) && s.age <= s.limit; s.text = ago(s.age); });
   out.push({ name: "Stekkers", ok: plugTotal > 0 && plugCount === plugTotal, text: plugTotal ? `${plugCount} van ${plugTotal} meldden zich in 15 min` : "geen stekkers gezien" });
   return out;
@@ -392,6 +419,21 @@ const SHEETS = {
       ["Periode", TODAY_PERIOD],
       ["Bron", "slimme meter"],
     ]) + link("period", "Net per dag in Grafana") };
+  },
+  verwacht() {
+    const notes = state.config.forecastNotes || {};
+    const f = state.today?.forecast;
+    const t = state.today?.data;
+    return { title: `Zon verwacht · morgen ${f && f.tomorrow_hours >= 24 ? plain(approx(f.tomorrow_kwh)) : "—"}`, body: rows([
+      ["Wat", "Hoeveel de zonnepanelen naar verwachting opwekken. Een verwachting, geen meting: daarom “≈”."],
+      ["Nog vandaag", f && isNum(f.rest_today_kwh) ? `${plain(approx(f.rest_today_kwh))} van nu tot middernacht; de hele dag ${plain(approx(f.today_kwh))}${t && isNum(t.generated_kwh) ? `, opgewekt tot nu ${plain(kwh(t.generated_kwh))}` : ""}` : "—"],
+      ["Morgen", f && f.tomorrow_hours >= 24 ? `${plain(approx(f.tomorrow_kwh))} (${weekday(1)})` : "—: nog geen verwachting voor morgen"],
+      ["Berekening", "de zon die de weerverwachting per uur geeft op elk dakvlak × wat elke string echt opwekte per eenheid zon"],
+      notes.planes && ["Dakvlakken", esc(notes.planes)],
+      notes.accuracy && ["Hoe goed", esc(notes.accuracy)],
+      ["Periode", f?.fetched_at ? `verwachting, elk uur nieuw opgehaald; deze om ${hm(f.fetched_at)}` : "verwachting, elk uur nieuw opgehaald; nog niets opgehaald"],
+      ["Bron", `Open-Meteo (gratis, zonder account)${notes.location ? `. Locatie: ${esc(notes.location)}` : ""}`],
+    ]) + link("period", "Verwacht en opgewekt per dag in Grafana") };
   },
   rekening() {
     const t = state.today?.data;

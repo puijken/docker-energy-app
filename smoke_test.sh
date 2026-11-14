@@ -57,6 +57,7 @@ check "bat temp"   /api/live '"battery_temp_c":24.0'
 check "zelf benut" /api/today '"self_consumption":1.0'
 check "today"      /api/today '"net_eur":2.47'
 check "savings"    /api/today '"savings_eur":0.4'
+check "forecast"   /api/today '"tomorrow_kwh":3.5'
 
 # The stream must deliver a live event (the cache) and a fresh one from the background reader.
 stream="$(curl -sN --max-time 4 "$BASE/api/stream" || true)"
@@ -74,6 +75,7 @@ docker exec "$ID-db" psql -U postgres -d energy -qc "UPDATE smoke_mode SET empty
 sleep 5
 check "empty live"  /api/live '"flow_time":null'
 check "empty today" /api/today '"data":null'
+check "empty fcast" /api/today '"forecast":null'
 
 # Database gone: the app keeps answering with ok:false and the last values.
 docker stop "$ID-db" >/dev/null

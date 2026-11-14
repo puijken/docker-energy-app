@@ -1,4 +1,4 @@
--- Stand-ins for the three views the app reads, with the same columns as the real ones, so the
+-- Stand-ins for the four views the app reads, with the same columns as the real ones, so the
 -- smoke test can run the image against a throwaway Postgres. Values are made up but plausible.
 -- The real views (and the rules behind each number) live with the deployment, not in this repo.
 CREATE ROLE energy_app LOGIN PASSWORD 'smoke' CONNECTION LIMIT 4;
@@ -55,4 +55,10 @@ SELECT 12000::bigint AS samples, 47000.0::double precision AS covered_s,
        0.46::double precision AS cost_with_eur, 0.86::double precision AS cost_without_eur, 0.40::double precision AS savings_eur
 FROM smoke_mode WHERE NOT empty;
 
-GRANT SELECT ON app_live, app_today, app_battery_savings_today TO energy_app;
+CREATE VIEW app_forecast AS
+SELECT now() - interval '10 minutes' AS fetched_at,
+       9.4::double precision AS today_kwh, 1.2::double precision AS rest_today_kwh,
+       3.5::double precision AS tomorrow_kwh, 24::bigint AS tomorrow_hours
+FROM smoke_mode WHERE NOT empty;
+
+GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast TO energy_app;

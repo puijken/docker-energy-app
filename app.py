@@ -2,7 +2,7 @@
 
 It shows what the house is doing now and how today went, from a TimescaleDB that another service
 fills. It never talks to a device and never writes: it connects with a read-only database role and
-reads three views (app_live, app_today, app_battery_savings_today). All calculation rules live in
+reads four views (app_live, app_today, app_battery_savings_today, app_forecast). All calculation rules live in
 those views, so the numbers match whatever else reads the same database.
 
 One reader serves every open screen: a background task reads the live view every LIVE_INTERVAL
@@ -74,11 +74,17 @@ def client_config() -> dict:
     return {
         "links": links,
         "plugLabels": parse_labels(os.environ.get("PLUG_LABELS", "")),
+        # Site-specific lines for the forecast's info sheet (roof planes, location used, measured
+        # accuracy); each one is left out when unset.
+        "forecastNotes": {key: os.environ[env].strip() for key, env in (
+            ("planes", "FORECAST_PLANES"), ("location", "FORECAST_LOCATION"),
+            ("accuracy", "FORECAST_ACCURACY")) if os.environ.get(env, "").strip()},
         "timeZone": os.environ.get("TZ", "Europe/Amsterdam"),
         "liveInterval": LIVE_INTERVAL,
         "todayInterval": TODAY_INTERVAL,
         # Ages after which a source counts as stale on the status sheet, in seconds.
-        "staleAfter": {"p1": 60, "battery": 60, "gas": 1200, "plug": 900, "outdoor": 10800},
+        "staleAfter": {"p1": 60, "battery": 60, "gas": 1200, "plug": 900, "outdoor": 10800,
+                       "forecast": 10800},
     }
 
 
@@ -130,15 +136,25 @@ class Hub:
         try:
             today = await self._query_one("SELECT * FROM app_today")
             savings = await self._query_one("SELECT * FROM app_battery_savings_today")
-            self.today = {"ok": True, "data": today, "savings": savings}
+            self.today = {"ok": True, "data": today, "savings": savings,
+                          "forecast": await self._read_forecast()}
             self.last_ok = time.monotonic()
             self.last_error = None
         except Exception as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
             log.warning("today read failed: %s", self.last_error)
             old = self.today or {}
-            self.today = {"ok": False, "data": old.get("data"), "savings": old.get("savings")}
+            self.today = {"ok": False, "data": old.get("data"), "savings": old.get("savings"),
+                          "forecast": old.get("forecast")}
         self.today_read_at = time.monotonic()
+
+    async def _read_forecast(self) -> dict | None:
+        """The solar forecast is an extra: a missing or failing view must not take today down."""
+        try:
+            return await self._query_one("SELECT * FROM app_forecast")
+        except Exception as exc:
+            log.warning("forecast read failed: %s: %s", type(exc).__name__, exc)
+            return (self.today or {}).get("forecast")
 
     async def ensure_fresh(self, kind: str) -> None:
         """For plain API calls: re-read only when the cached value is older than API_MIN_AGE."""

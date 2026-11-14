@@ -58,7 +58,7 @@ a { color: var(--accent); }
 .side { display: grid; gap: 12px; grid-template-columns: 1fr; align-content: start; }
 @media (min-width: 640px) and (max-width: 999px) {
   .side { grid-template-columns: 1fr 1fr; }
-  .side > :last-child { grid-column: 1 / -1; }
+  .side > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
 @media (min-width: 1000px) {
   .thuis { grid-template-columns: 1.25fr 1fr; align-items: start; }

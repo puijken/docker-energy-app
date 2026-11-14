@@ -27,7 +27,7 @@ card can link to the matching Grafana dashboard.
 ## How it works
 
 - **Read-only by construction.** The app connects to PostgreSQL/TimescaleDB with a role that may only
-  `SELECT` three views. It never talks to a device and never writes.
+  `SELECT` four views. It never talks to a device and never writes.
 - **All rules live in SQL.** The views decide what each number means, so the app shows the same
   figures as anything else reading that database. The app formats and draws.
 - **One reader for every screen.** While at least one screen is connected, a background task reads
@@ -45,6 +45,7 @@ card can link to the matching Grafana dashboard.
 | `app_live` | one | newest power values, charge level, limits, source timestamps, plugs (JSON array), outdoor temperature and its time |
 | `app_today` | zero or one | today's totals and money |
 | `app_battery_savings_today` | zero or one | the calculated battery savings and their inputs |
+| `app_forecast` | zero or one | solar forecast: `fetched_at`, `today_kwh`, `rest_today_kwh` (now → midnight), `tomorrow_kwh`, `tomorrow_hours` (24 when tomorrow is complete). Optional: when it is missing or fails, the rest of the screen works and the card shows “—” |
 
 `tests/fixture.sql` has stand-ins with exactly the columns the app reads. The real definitions belong
 to your deployment.
@@ -62,6 +63,7 @@ All settings come from the environment. None of them is secret except the databa
 | `TODAY_INTERVAL` | `60` | seconds between reads of the day views |
 | `PLUG_LABELS` | (empty) | display names, `source=Label,...`; also the plugs the status sheet expects |
 | `LINK_DAY`, `LINK_PERIOD`, `LINK_MONEY`, `LINK_BATTERY`, `LINK_PLUGS`, `LINK_TECH` | (empty) | Grafana links per card and tab; a missing link hides it |
+| `FORECAST_PLANES`, `FORECAST_LOCATION`, `FORECAST_ACCURACY` | (empty) | extra lines on the forecast's info sheet: the roof planes, the location sent to the forecast service, how accurate it was when tested; each is left out when unset |
 | `TZ` | `Europe/Amsterdam` | time zone for clocks and labels |
 | `PORT` | `8080` | listening port |
 
@@ -93,7 +95,7 @@ CREATE ROLE energy_app LOGIN CONNECTION LIMIT 4;
 ALTER ROLE energy_app SET default_transaction_read_only = on;
 ALTER ROLE energy_app SET statement_timeout = '5s';
 GRANT USAGE ON SCHEMA public TO energy_app;
-GRANT SELECT ON app_live, app_today, app_battery_savings_today TO energy_app;
+GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast TO energy_app;
 -- then set its password by hand, not in a file you commit
 ```
 
