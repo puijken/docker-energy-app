@@ -13,7 +13,7 @@ const isNum = (x) => typeof x === "number" && Number.isFinite(x);
 const num = (x, d = 1) => (isNum(x) ? fmt[d].format(x) : "—");
 const unit = (text, u) => (text === "—" ? "—" : `${text}<small>${u}</small>`);
 const kwh = (x, d = 1) => unit(num(x, d), "kWh");
-const eur = (x, d = 2) => (isNum(x) ? `€\u00a0${fmt[d].format(x)}` : "—");
+const eur = (x, d = 2) => (isNum(x) ? `${x < 0 ? "−" : ""}€\u00a0${fmt[d].format(Math.abs(x))}` : "—");
 const pct = (x) => (isNum(x) ? unit(fmt[0].format(x * 100), "%") : "—");
 function power(w) {
   if (!isNum(w)) return "—";
@@ -544,6 +544,44 @@ const SHEETS = {
       ["Bron", "thuisbatterij"],
     ]) + link("battery", "Geladen en ontladen in Grafana") };
   },
+  gmaand() { return moneySheet("month", "Energierekening deze maand"); },
+  gjaar() { return moneySheet("year", "Energierekening dit jaar"); },
+  gbespaard() {
+    const sv = state.money?.savings, price = state.config.batteryPriceEur;
+    return { title: `Bespaard door de batterij · ≈ ${sv ? eur(sv.total_eur) : "—"}`, body: rows([
+      ["Wat", "Wat de batterij je bespaart onder de regels van 2027 (geen salderen meer), zoals op Thuis, nu ook opgeteld per maand en sinds de installatie."],
+      ["Berekening", "per dag: rekening zonder batterij − rekening met batterij, met de prijzen van 2027; zonder batterij = verbruik − de zon zoals je vorige omvormer die had geleverd (gemeten rendement). Daarom “berekend” en “≈”."],
+      ["Vandaag", sv ? `≈ ${eur(sv.today_eur)}` : "—"],
+      ["Deze maand", sv ? `≈ ${eur(sv.month_eur)}` : "—"],
+      ["Sinds installatie", sv ? `≈ ${eur(sv.total_eur)} over ${sv.days} dagen (vanaf 1 mrt 2026, 10:30)` : "—"],
+      price && ["Terugverdienen", `tegen ${eur0(price)}, de aanschafprijs (instelling BATTERY_PRICE_EUR)`],
+      ["Periode", sv?.filled_at ? `vandaag live; eerdere dagen elk uur berekend, laatst om ${hm(sv.filled_at)}` : "vandaag live; de eerdere dagen worden nog niet berekend (de dagtaak in de database staat nog niet aan), dus tellen alleen vandaag"],
+      ["Bron", "slimme meter, thuisbatterij, contractprijzen 2027"],
+    ]) };
+  },
+  g2027() {
+    const b = state.money?.bill_2027;
+    return { title: `Klaar voor 2027 · ≈ ${b ? eur0(b.net_eur) : "—"}`, body: rows([
+      ["Wat", "Wat dit jaar tot nu had gekost met dezelfde meterstanden, maar met de regels en prijzen van 2027: geen salderen, teruglevering levert alleen de terugleververgoeding op en kost terugleverkosten per kWh."],
+      ["Echt", b ? `${eur0(b.real_eur)} (de rekening van dit jaar tot nu, met salderen)` : "—"],
+      ["Afname", b ? `${num(b.import_kwh, 0)} kWh × € ${num(b.p_import, 5)} = ${eur0(b.import_eur)}` : "—"],
+      ["Teruglevering", b ? `${num(b.export_kwh, 0)} kWh × (€ ${num(b.p_feedin, 4)} − € ${num(b.p_feedin_cost, 5)} terugleverkosten) = ${eur0(b.export_eur)}` : "—"],
+      ["Gas", b ? `${num(b.gas_m3, 0)} m³ × € ${num(b.p_gas, 4)} = ${eur0(b.gas_eur)}` : "—"],
+      ["Vaste kosten", b ? `${b.days} dagen × € ${num(b.p_fixed, 4)} = ${eur0(b.fixed_eur)}` : "—"],
+      ["Let op", "een rekenvoorbeeld op de stromen van dit jaar: met de batterij het hele jaar was de teruglevering lager geweest. Ook de prijzen verschillen (gas duurder, vaste kosten lager), niet alleen het einde van salderen."],
+      ["Periode", "1 januari – nu"],
+      ["Bron", "meterstanden en de contractprijzen voor 2027"],
+    ]) + link("money", "Geld in Grafana") };
+  },
+  gmaanden() {
+    const h = state.moneyYear;
+    return { title: "Energierekening per maand", body: rows([
+      ["Wat", "De energierekening van elke maand dit jaar, met dezelfde maand vorig jaar als grijze lijn."],
+      ["Berekening", "stroomkosten − terugleververgoeding + gaskosten + vaste kosten, met het contract dat toen gold en salderen per afrekenperiode. Terugleverkosten tellen nog niet mee."],
+      ["Dit jaar", h ? `${eur0(h.totals?.net_eur)} tot nu; vorig jaar tot dezelfde dag ${eur0(h.ly_totals?.net_eur)}` : "—"],
+      ["Bron", "meterstanden en de contractprijzen uit DSMR-reader"],
+    ]) + link("money", "Geld in Grafana") };
+  },
   hopgewekt() { return histSheet("Opgewekt", "generated_kwh", "kWh", "Wat de zonnepanelen opwekten.", "som van de opbrengst per dag (de teller van de omvormer, sinds 13-11-2026 die van de thuisbatterij)", "omvormer / thuisbatterij"); },
   hverbruik() { return histSheet("Verbruik", "consumption_kwh", "kWh", "Wat het huis gebruikte, auto en stekkers inbegrepen.", "per dag: afgenomen − teruggeleverd + opgewekt (vóór de batterij) of + uit de batterij − uit het stopcontact (sinds de batterij)", "slimme meter en omvormer / thuisbatterij"); },
   hzelfv() { return histSheet("Zelfvoorzienend", "self_sufficiency", "%", "Deel van je verbruik dat uit eigen zon kwam, direct of via de batterij.", "eigen verbruik ÷ verbruik over de hele periode (niet het gemiddelde van de dagen)", "slimme meter en omvormer / thuisbatterij"); },
@@ -635,7 +673,7 @@ const SHEETS = {
       '<li><a href="#" data-sheet="status">Status van de bronnen</a></li>',
       '<li><a href="?kiosk">Wandweergave</a></li>',
     ].filter(Boolean).join("");
-    return { title: "Meer", body: `<ul>${items}</ul><p style="color:var(--muted)">Thuis, Historie en Batterij staan in de app. Geld opent voorlopig Grafana.</p>` };
+    return { title: "Meer", body: `<ul>${items}</ul><p style="color:var(--muted)">Alles wat dieper gaat staat in Grafana; elke kaart heeft een link.</p>` };
   },
 };
 
@@ -653,6 +691,20 @@ function histSheet(title, key, unitName, what, how, source, key2) {
     ["Vorig jaar", `${ly}: ${h ? val(Y) : "—"}`],
     ["Bron", source],
   ]) + link("period", "Periode in Grafana") };
+}
+
+// Sheet for this month's or this year's bill.
+function moneySheet(k, title) {
+  const b = state.money?.[`bill_${k}`];
+  return { title: `${title} · ${b ? eur(b.net_eur) : "—"}`, body: rows([
+    ["Stroom", b ? `${eur(b.import_eur)} afname (${num(b.import_kwh, 0)} kWh) − ${eur(b.export_eur)} teruglevering (${num(b.export_kwh, 0)} kWh)` : "—"],
+    ["Gas", b ? `${eur(b.gas_eur)} (${num(b.gas_m3, 0)} m³)` : "—"],
+    ["Vaste kosten", b ? `${eur(b.fixed_eur)} over ${b.days} dagen: netbeheer en vaste leveringskosten, min de vermindering energiebelasting` : "—"],
+    ["Berekening", "met de prijzen van het contract dat toen gold; tot en met 2026 wordt teruglevering verrekend tegen de stroomprijs (salderen per afrekenperiode)"],
+    ["Niet meegeteld", "terugleverkosten: tot 2027 een vast bedrag per dag dat pas bij de jaarafrekening vastligt"],
+    ["Periode", k === "month" ? "deze maand, de 1e – nu" : "dit jaar, 1 januari – nu"],
+    ["Bron", "meterstanden en de contractprijzen uit DSMR-reader"],
+  ]) + link("money", "Geld in Grafana") };
 }
 
 function openSheet(key) {
@@ -741,18 +793,20 @@ function histChart(h, key, color, width, digits) {
   for (const b of h.ly_buckets) { const i = slotOf(h, b.t, h.ly_start); if (i >= 0 && i < n && isNum(b[key])) ly[i] = b[key]; }
   const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(230, Math.max(160, W * 0.34)));
   const L = 44, R = 6, T = 10, B = 24;
-  const max = Math.max(1, ...now.filter(isNum), ...ly.filter(isNum));
-  const step = [1, 2, 2.5, 5, 10].map((f) => f * 10 ** Math.floor(Math.log10(max / 3))).find((s) => max / s <= 4) || max / 3;
-  const top = Math.ceil(max / step) * step;
-  const y = (v) => T + (1 - v / top) * (H - T - B);
+  const vals = [...now, ...ly].filter(isNum);
+  const max = Math.max(1, ...vals), min = Math.min(0, ...vals);
+  const span = max - min;
+  const step = [1, 2, 2.5, 5, 10].map((f) => f * 10 ** Math.floor(Math.log10(span / 3))).find((s) => span / s <= 4) || span / 3;
+  const top = Math.ceil(max / step) * step, floor = Math.floor(min / step) * step;
+  const y = (v) => T + ((top - v) / (top - floor)) * (H - T - B);
   const slotW = (W - L - R) / n, cx = (i) => L + slotW * (i + 0.5);
   const bw = Math.max(2, Math.min(28, slotW * 0.62));
   let grid = "";
-  for (let v = 0; v <= top + 1e-9; v += step) grid += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="g"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="ax">${fmt[Number.isInteger(step) ? 0 : 1].format(v)}</text>`;
+  for (let v = floor; v <= top + 1e-9; v += step) grid += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="g"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="ax">${fmt[Number.isInteger(step) ? 0 : 1].format(v)}</text>`;
   const every = h.bucket === "month" ? (W < 420 ? 2 : 1) : h.unit === "week" ? 1 : W < 420 ? 7 : 5;
   const ticks = Array.from({ length: n }, (_, i) => i).filter((i) => h.unit === "month" ? (i === 0 || (i + 1) % every === 0) : i % every === 0)
     .map((i) => `<text x="${cx(i)}" y="${H - 6}" text-anchor="middle" class="ax">${slotLabel(h, i)}</text>`).join("");
-  const bars = now.map((v, i) => isNum(v) && v > 0 ? `<rect x="${(cx(i) - bw / 2).toFixed(1)}" y="${y(v).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y(0) - y(v)).toFixed(1)}" rx="${Math.min(4, bw / 3).toFixed(1)}" fill="${color}"><title>${slotLabel(h, i)}: ${fmt[digits].format(v)}${isNum(ly[i]) ? ` (vorig jaar ${fmt[digits].format(ly[i])})` : ""}</title></rect>` : "").join("");
+  const bars = now.map((v, i) => isNum(v) && v !== 0 ? `<rect x="${(cx(i) - bw / 2).toFixed(1)}" y="${Math.min(y(v), y(0)).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.abs(y(0) - y(v)).toFixed(1)}" rx="${Math.min(4, bw / 3).toFixed(1)}" fill="${color}"><title>${slotLabel(h, i)}: ${fmt[digits].format(v)}${isNum(ly[i]) ? ` (vorig jaar ${fmt[digits].format(ly[i])})` : ""}</title></rect>` : "").join("");
   let line = "", dots = "";
   ly.forEach((v, i) => {
     if (!isNum(v)) return;
@@ -802,7 +856,12 @@ function renderHistory() {
   if (a) {
     const base = state.config.links.period;
     a.hidden = !base || !h;
-    if (base && h) { a.href = `${base}${base.includes("?") ? "&" : "?"}from=${new Date(h.start).getTime()}&to=${Math.min(new Date(h.end).getTime(), Date.now())}`; a.target = "_blank"; a.rel = "noopener"; }
+    if (base && h) {
+      const u = new URL(base, location.href); // the configured link may carry its own range: replace it
+      u.searchParams.set("from", String(new Date(h.start).getTime()));
+      u.searchParams.set("to", String(Math.min(new Date(h.end).getTime(), Date.now())));
+      a.href = u.toString(); a.target = "_blank"; a.rel = "noopener";
+    }
   }
 }
 
@@ -823,6 +882,65 @@ document.addEventListener("click", (e) => {
   if (e.target.closest("#hist-prev") && state.hist.data) histGo(histShift(state.hist.data, -1));
   if (e.target.closest("#hist-next") && state.hist.data) histGo(histShift(state.hist.data, 1));
 });
+
+// ---------- Geld screen (/api/money: app_money(); the per-month chart reuses /api/history?unit=year) ----------
+state.money = null; state.moneyYear = null;
+
+const eur0 = (x) => eur(x, 0);
+const billSub = (b) => (b && isNum(b.net_eur) ? `stroom ${fmt[0].format((b.import_eur ?? 0) - (b.export_eur ?? 0))} · gas ${fmt[0].format(b.gas_eur ?? 0)} · vast ${fmt[0].format(b.fixed_eur ?? 0)}` : "");
+
+function renderMoney() {
+  const m = state.money, sv = m?.savings, b27 = m?.bill_2027;
+  setV("g-maand", m?.bill_month ? eur(m.bill_month.net_eur) : "—");
+  setV("g-maand-sub", billSub(m?.bill_month));
+  setV("g-jaar", m?.bill_year ? eur0(m.bill_year.net_eur) : "—");
+  setV("g-jaar-sub", billSub(m?.bill_year));
+
+  const filled = !!sv?.filled_at;
+  setV("g-bv", sv && isNum(sv.today_eur) ? `≈ ${eur(sv.today_eur)}` : "—");
+  setV("g-bm", sv && isNum(sv.month_eur) ? `≈ ${eur(sv.month_eur)}` : "—");
+  setV("g-bt", sv && isNum(sv.total_eur) ? `≈ ${eur(sv.total_eur)}` : "—");
+  setV("g-bt-sub", sv?.since ? `sinds ${new Date(sv.since).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric", timeZone: TZ })}` : "");
+  const note = $("[data-gnote]");
+  if (note) note.hidden = !m || filled;
+  const price = state.config.batteryPriceEur;
+  const pb = $("[data-payback]");
+  if (pb) {
+    pb.hidden = !price;
+    if (price) {
+      const got = sv && isNum(sv.total_eur) ? Math.max(0, sv.total_eur) : 0;
+      $("[data-pbar]").style.width = `${Math.min(100, (got / price) * 100)}%`;
+      setV("g-pb", `≈ ${eur0(got)} van ${eur0(price)} terugverdiend (${fmt[1].format((got / price) * 100)} %)`);
+    }
+  }
+
+  setV("g-27real", b27 ? eur0(b27.real_eur) : "—");
+  setV("g-27", b27 ? `≈ ${eur0(b27.net_eur)}` : "—");
+  setV("g-27diff", b27 && isNum(b27.net_eur) ? `${b27.net_eur >= b27.real_eur ? "+" : "−"}${eur0(Math.abs(b27.net_eur - b27.real_eur))} onder de regels van 2027` : "");
+  const tbl = $("[data-g27]");
+  if (tbl) {
+    const y = m?.bill_year;
+    tbl.innerHTML = b27 && y ? [
+      ["Stroom afname", y.import_eur, b27.import_eur],
+      ["Teruglevering", -(y.export_eur ?? 0), -(b27.export_eur ?? 0)],
+      ["Gas", y.gas_eur, b27.gas_eur],
+      ["Vaste kosten", y.fixed_eur, b27.fixed_eur],
+    ].map(([l, a, c]) => `<tr><th scope="row">${l}</th><td>${eur0(a)}</td><td>≈ ${eur0(c)}</td></tr>`).join("") : "";
+  }
+
+  const box = $("[data-gchart]");
+  const h = state.moneyYear;
+  if (box) box.innerHTML = h ? histChart(h, "net_eur", "var(--accent)", box.clientWidth, 0) : "";
+}
+
+let moneyTimer = null;
+async function fetchMoney() {
+  const get = async (url) => { try { const r = await fetch(url, { cache: "no-store", credentials: "same-origin" }); return r.ok ? await r.json() : null; } catch { return null; } };
+  const [m, y] = await Promise.all([get("/api/money"), get(`/api/history?${new URLSearchParams({ unit: "year", date: todayIso() })}`)]);
+  if (m?.data) state.money = m.data;
+  if (y?.data) state.moneyYear = y.data;
+  renderMoney(); refreshSheet();
+}
 
 // ---------- Batterij screen (/api/battery: app_battery_soc_today, _summary, _efficiency) ----------
 // Fetched only while the screen is open, every batteryInterval seconds; live values (charge level,
@@ -917,7 +1035,7 @@ async function fetchBattery() {
 }
 
 // ---------- screens: Thuis (default) and Batterij, by the address's #hash ----------
-const SCREENS = { thuis: "Thuis", historie: "Historie", batterij: "Batterij" };
+const SCREENS = { thuis: "Thuis", historie: "Historie", geld: "Geld", batterij: "Batterij" };
 function currentScreen() { const h = location.hash.replace("#", ""); return SCREENS[h] ? h : "thuis"; }
 function showScreen() {
   const name = currentScreen();
@@ -931,6 +1049,11 @@ function showScreen() {
   });
   clearInterval(batteryTimer); batteryTimer = null;
   clearInterval(histTimer); histTimer = null;
+  clearInterval(moneyTimer); moneyTimer = null;
+  if (name === "geld" && !wallMode) {
+    fetchMoney();
+    moneyTimer = setInterval(fetchMoney, 60000);
+  }
   if (name === "historie" && !wallMode) {
     if (!state.hist.anchor) state.hist.anchor = todayIso();
     fetchHistory();
@@ -945,7 +1068,7 @@ function showScreen() {
 }
 window.addEventListener("hashchange", showScreen);
 let resizeTimer = null;
-window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (state.battery) renderBattery(); if (state.hist.data) renderHistory(); }, 200); });
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (state.battery) renderBattery(); if (state.hist.data) renderHistory(); if (state.money) renderMoney(); }, 200); });
 
 // ---------- tabs ----------
 const ICONS = {
@@ -964,7 +1087,7 @@ function renderTabs() {
     if (!href) return "";
     return `<a class="tab" href="${esc(href)}" target="_blank" rel="noopener" title="${label} in Grafana">${svg}<span>${label} <span class="ext">↗</span></span></a>`;
   };
-  const html = tab("thuis", "Thuis") + tab("historie", "Historie") + tab("geld", "Geld", L.money) + tab("batterij", "Batterij") + tab("meer", "Meer");
+  const html = tab("thuis", "Thuis") + tab("historie", "Historie") + tab("geld", "Geld") + tab("batterij", "Batterij") + tab("meer", "Meer");
   $$("[data-tabs]").forEach((n) => { n.innerHTML = html; });
   $$("[data-link]").forEach((a) => {
     const href = L[a.dataset.link];

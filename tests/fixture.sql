@@ -143,5 +143,25 @@ FROM p, m;
 $f$;
 GRANT EXECUTE ON FUNCTION app_history(text, date) TO energy_app;
 
+-- Geld: the same JSON shape as the real app_money(), made-up numbers; savings without the daily
+-- table filled look like this too (filled_at null).
+CREATE FUNCTION app_money() RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS $f$
+SELECT CASE WHEN empty THEN jsonb_build_object('savings', jsonb_build_object('days', 0), 'bill_month', NULL, 'bill_year', NULL,
+                                                'bill_2027', NULL, 'year_start', date_trunc('year', now()))
+ELSE jsonb_build_object(
+    'savings', jsonb_build_object('today_eur', 0.40, 'month_eur', 1.41, 'total_eur', 1.41, 'days', 3,
+                                  'since', '2026-03-02T10:30:00+01:00'::timestamptz, 'filled_at', now() - interval '20 minutes'),
+    'bill_month', jsonb_build_object('days', 14, 'net_eur', 120.0, 'import_eur', 50.0, 'export_eur', 6.06, 'gas_eur', 70.0,
+                                     'fixed_eur', 5.67, 'import_kwh', 170.0, 'export_kwh', 22.3, 'gas_m3', 46.3),
+    'bill_year', jsonb_build_object('days', 318, 'net_eur', 1010.0, 'import_eur', 800.0, 'export_eur', 600.0, 'gas_eur', 650.0,
+                                    'fixed_eur', 160.0, 'import_kwh', 3000.0, 'export_kwh', 3000.0, 'gas_m3', 530.0),
+    'bill_2027', jsonb_build_object('days', 318, 'real_eur', 1010.0, 'import_eur', 900.0, 'export_eur', 30.0, 'gas_eur', 700.0,
+                                    'fixed_eur', 160.0, 'net_eur', 1730.5, 'import_kwh', 3000.0, 'export_kwh', 3000.0, 'gas_m3', 530.0,
+                                    'p_import', 0.30, 'p_feedin', 0.05, 'p_feedin_cost', 0.04, 'p_gas', 1.40, 'p_fixed', 0.50),
+    'year_start', date_trunc('year', now()))
+END FROM smoke_mode;
+$f$;
+GRANT EXECUTE ON FUNCTION app_money() TO energy_app;
+
 GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
                 app_battery_soc_today, app_battery_summary, app_battery_efficiency TO energy_app;

@@ -69,6 +69,9 @@ check "hist week"  "/api/history?unit=week&date=2026-11-11" '"unit":"week"'
 code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/history?unit=decade")"
 [ "$code" = "400" ] || fail "history with a bad unit: expected 400, got $code"
 echo "ok   hist unit"
+check "money"      /api/money '"net_eur":1730.5'
+check "save total" /api/money '"total_eur":1.41'
+check "price cfg"  /api/config '"batteryPriceEur":null'
 
 # The stream must deliver a live event (the cache) and a fresh one from the background reader.
 stream="$(curl -sN --max-time 4 "$BASE/api/stream" || true)"

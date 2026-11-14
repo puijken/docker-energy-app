@@ -36,6 +36,16 @@ energy, money and gas with the change, gas per degree day, and bars per day (per
 for generated and used energy with last year as a grey line. While a period is still running, last
 year is counted up to the same day.
 
+### Geld
+
+- **Energierekening:** this month and this year, with the parts (electricity, gas, fixed costs).
+- **Energierekening per maand:** this year per month, last year as a grey line (negative months
+  below zero).
+- **Bespaard door de batterij** (calculated): today, this month and since installation, under the
+  rules that apply from 2027; with `BATTERY_PRICE_EUR` set, a payback bar against that price.
+- **Klaar voor 2027** (calculated): this year's measured energy billed at the 2027 rules and prices,
+  next to the real bill, per part.
+
 ### Batterij
 
 - **Nu:** charge level with the lower limit, the power of the cells (laadt / ontlaadt / rust),
@@ -76,6 +86,7 @@ that screen is open.
 | `app_battery_summary` | one (all null without data) | lifetime counters, `rated_kwh`, `full_cycles`, `soh`, temperature now and today's range, today's lowest/highest charge level, `cell_efficiency_30d` and its inputs, `first_reading` |
 | `app_battery_efficiency` | nine | per power band (`band`, `label`): out ÷ in for `solar`, `battery`, `socket`, `direct`; null when there are too few readings |
 | `app_history(unit, date)` | function → JSON | Historie: the week, month or year containing `date`: `start`, `end`, `buckets` and `ly_buckets` (per day, or per month for a year), `totals` and `ly_totals` (energy, money, gas, degree days and the ratios), `running`, `first_day` |
+| `app_money()` | function → JSON | Geld: `savings` (`today_eur`, `month_eur`, `total_eur`, `days`, `since`, `filled_at`), `bill_month` and `bill_year` (net and parts), `bill_2027` (this year at the 2027 rules: parts, `net_eur`, `real_eur`, prices) |
 | `app_forecast` | zero or one | solar forecast: `fetched_at`, `today_kwh`, `rest_today_kwh` (now → midnight), `tomorrow_kwh`, `tomorrow_hours` (24 when tomorrow is complete). Optional: when it is missing or fails, the rest of the screen works and the card shows “—” |
 
 `tests/fixture.sql` has stand-ins with exactly the columns the app reads. The real definitions belong
@@ -92,6 +103,8 @@ All settings come from the environment. None of them is secret except the databa
 | `DB_POOL_SIZE` | `2` | maximum database connections |
 | `LIVE_INTERVAL` | `5` | seconds between live reads |
 | `TODAY_INTERVAL` | `60` | seconds between reads of the day views |
+| `BATTERY_PRICE_EUR` | (empty) | what the battery cost, for the payback bar on Geld; no bar when unset |
+| `MONEY_INTERVAL` | `60` | the Geld data is re-read at most this often |
 | `HISTORY_MAX_AGE` | `300` | seconds a Historie answer is kept (60 for a period that is still running) |
 | `BATTERY_INTERVAL` | `60` | the Batterij screen's data is re-read at most this often (only while a screen asks for it) |
 | `PLUG_LABELS` | (empty) | display names, `source=Label,...`; also the plugs the status sheet expects |
@@ -130,7 +143,7 @@ ALTER ROLE energy_app SET statement_timeout = '5s';
 GRANT USAGE ON SCHEMA public TO energy_app;
 GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
                 app_battery_soc_today, app_battery_summary, app_battery_efficiency TO energy_app;
-GRANT EXECUTE ON FUNCTION app_history(text, date) TO energy_app;
+GRANT EXECUTE ON FUNCTION app_history(text, date), app_money() TO energy_app;
 -- then set its password by hand, not in a file you commit
 ```
 
@@ -142,6 +155,7 @@ GRANT EXECUTE ON FUNCTION app_history(text, date) TO energy_app;
 | `/api/stream` | Server-Sent Events: `live` and `today` events, a comment line every 15 s |
 | `/api/live`, `/api/today` | the same data as JSON (re-read at most every few seconds) |
 | `/api/history?unit=week\|month\|year&date=YYYY-MM-DD` | the Historie screen for that period (400 for another unit or a bad date) |
+| `/api/money` | the Geld screen (re-read at most every `MONEY_INTERVAL` seconds) |
 | `/api/battery` | the Batterij screen: today's charge level, the summary row, efficiency per band, the day's start and end (re-read at most every `BATTERY_INTERVAL` seconds) |
 | `/api/config` | links, plug labels, intervals, time zone |
 | `/healthz` | 200 when the database answers, 503 otherwise (used by the image's `HEALTHCHECK`) |

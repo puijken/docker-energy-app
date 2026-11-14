@@ -140,6 +140,50 @@
     </div>
   </main>
 
+  <!-- Geld: the bill this month and year, battery savings, this year under the 2027 rules (app_money, 027). -->
+  <main class="cols" id="scr-geld" hidden>
+    <div class="main-col">
+      <section class="card" aria-labelledby="h-grek">
+        <h2 id="h-grek">Energierekening</h2>
+        <div class="kpis">
+          <button type="button" class="kpi" data-sheet="gmaand"><span class="l">Deze maand</span><span class="val" data-v="g-maand">—</span><span class="sub" data-v="g-maand-sub"></span></button>
+          <button type="button" class="kpi" data-sheet="gjaar"><span class="l">Dit jaar</span><span class="val" data-v="g-jaar">—</span><span class="sub" data-v="g-jaar-sub"></span></button>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="h-gmnd">
+        <h2 id="h-gmnd">Energierekening per maand <em>€</em></h2>
+        <button type="button" class="chart" data-sheet="gmaanden" aria-label="Energierekening per maand" data-gchart></button>
+        <p class="legend"><span><i class="sq" style="--c:var(--accent)"></i>dit jaar</span><span><i class="ln dash" style="border-top-color:var(--ref)"></i>vorig jaar</span></p>
+        <a class="more" data-link="money" hidden>Geld in Grafana ›</a>
+      </section>
+    </div>
+
+    <div class="side">
+      <section class="card" aria-labelledby="h-gbes">
+        <h2 id="h-gbes">Bespaard door de batterij <em><span class="chip">berekend</span></em></h2>
+        <div class="kpis kpis3">
+          <button type="button" class="kpi calc" data-sheet="gbespaard"><span class="l">Vandaag</span><span class="val" data-v="g-bv">—</span></button>
+          <button type="button" class="kpi calc" data-sheet="gbespaard"><span class="l">Deze maand</span><span class="val" data-v="g-bm">—</span></button>
+          <button type="button" class="kpi calc" data-sheet="gbespaard"><span class="l">Sinds installatie</span><span class="val" data-v="g-bt">—</span><span class="sub" data-v="g-bt-sub"></span></button>
+        </div>
+        <button type="button" class="payback" data-sheet="gbespaard" data-payback hidden>
+          <span class="batbar"><span data-pbar></span></span><span class="sub" data-v="g-pb"></span>
+        </button>
+        <p class="note" data-gnote hidden>Nog alleen vandaag: de eerdere dagen worden nog niet opgeteld (de dagtaak in de database staat nog niet aan).</p>
+      </section>
+
+      <section class="card" aria-labelledby="h-g27">
+        <h2 id="h-g27">Klaar voor 2027 <em><span class="chip">berekend</span></em></h2>
+        <div class="kpis">
+          <button type="button" class="kpi" data-sheet="g2027"><span class="l">Dit jaar, echt</span><span class="val" data-v="g-27real">—</span><span class="sub">met salderen</span></button>
+          <button type="button" class="kpi calc" data-sheet="g2027"><span class="l">Dit jaar, regels van 2027</span><span class="val" data-v="g-27">—</span><span class="sub" data-v="g-27diff"></span></button>
+        </div>
+        <table class="t27"><thead><tr><th></th><th>echt</th><th>2027</th></tr></thead><tbody data-g27></tbody></table>
+      </section>
+    </div>
+  </main>
+
   <!-- Batterij: today's charge level, counters, efficiency per power band and health (app_battery_*, 025). -->
   <main class="cols" id="scr-batterij" hidden>
     <div class="side">

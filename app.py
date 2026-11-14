@@ -3,7 +3,7 @@
 It shows what the house is doing now and how today went, from a TimescaleDB that another service
 fills. It never talks to a device and never writes: it connects with a read-only database role and
 reads views only (app_live, app_today, app_battery_savings_today, app_forecast, app_battery_* for
-the Batterij screen) and one read-only function (app_history, for the Historie screen). All calculation rules live in those views, so the numbers match whatever else
+the Batterij screen) and two read-only functions (app_history for Historie, app_money for Geld). All calculation rules live in those views, so the numbers match whatever else
 reads the same database.
 
 One reader serves every open screen: a background task reads the live view every LIVE_INTERVAL
@@ -44,6 +44,8 @@ BATTERY_INTERVAL = float(os.environ.get("BATTERY_INTERVAL", "60"))
 # A Historie answer (one week, month or year) is kept this long; past periods hardly change.
 HISTORY_MAX_AGE = float(os.environ.get("HISTORY_MAX_AGE", "300"))
 HISTORY_UNITS = ("week", "month", "year")
+# The Geld screen (app_money) is re-read at most this often.
+MONEY_INTERVAL = float(os.environ.get("MONEY_INTERVAL", "60"))
 
 
 def conninfo() -> str:
@@ -89,6 +91,8 @@ def client_config() -> dict:
         "liveInterval": LIVE_INTERVAL,
         "todayInterval": TODAY_INTERVAL,
         "batteryInterval": BATTERY_INTERVAL,
+        # What the battery cost, for the payback bar on the Geld screen; no bar when unset.
+        "batteryPriceEur": float(os.environ["BATTERY_PRICE_EUR"]) if os.environ.get("BATTERY_PRICE_EUR", "").strip() else None,
         # Ages after which a source counts as stale on the status sheet, in seconds.
         "staleAfter": {"p1": 60, "battery": 60, "gas": 1200, "plug": 900, "outdoor": 10800,
                        "forecast": 10800},
@@ -119,6 +123,8 @@ class Hub:
         self.battery: dict | None = None
         self.battery_read_at = 0.0
         self.history: dict[tuple, tuple[float, dict]] = {}
+        self.money: dict | None = None
+        self.money_read_at = 0.0
         self.last_ok = 0.0
         self.last_error: str | None = None
         self.lock = asyncio.Lock()
@@ -214,6 +220,20 @@ class Hub:
         self.history[key] = (now, result)
         return result
 
+    async def read_money(self) -> dict:
+        """The Geld screen, from app_money() (rules in SQL), at most every MONEY_INTERVAL seconds."""
+        async with self.lock:
+            if self.money and self.money["ok"] and time.monotonic() - self.money_read_at < MONEY_INTERVAL:
+                return self.money
+            try:
+                row = await self._query_one("SELECT app_money() AS m")
+                self.money = {"ok": True, "data": row["m"] if row else None}
+            except Exception as exc:
+                log.warning("money read failed: %s: %s", type(exc).__name__, exc)
+                self.money = {"ok": False, "data": (self.money or {}).get("data")}
+            self.money_read_at = time.monotonic()
+            return self.money
+
     async def ensure_fresh(self, kind: str) -> None:
         """For plain API calls: re-read only when the cached value is older than API_MIN_AGE."""
         async with self.lock:
@@ -306,6 +326,10 @@ async def api_history(request: Request) -> Response:
     return Response(to_json(result), media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
+async def api_money(request: Request) -> Response:
+    return Response(to_json(await hub.read_money()), media_type="application/json", headers={"Cache-Control": "no-store"})
+
+
 async def api_stream(request: Request) -> Response:
     queue: asyncio.Queue = asyncio.Queue(maxsize=8)
 
@@ -360,6 +384,7 @@ routes = [
     Route("/api/today", api_today),
     Route("/api/battery", api_battery),
     Route("/api/history", api_history),
+    Route("/api/money", api_money),
     Route("/api/stream", api_stream),
     Route("/healthz", healthz),
     Route("/manifest.webmanifest", manifest),
