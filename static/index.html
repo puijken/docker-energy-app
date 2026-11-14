@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Energie</title>
+<meta name="description" content="Wat het huis nu doet en hoe vandaag ging.">
+<meta name="theme-color" content="#f2f3f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0e12" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Energie">
+<!-- use-credentials: behind a login proxy the manifest request must carry the session cookie,
+     or it is answered with the login page. -->
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/app.css">
+<script type="module" src="/static/app.js"></script>
+</head>
+<body>
+<div class="shell" id="shell">
+  <header class="top">
+    <h1>Thuis</h1>
+    <nav class="tabs-wide" aria-label="Schermen" data-tabs></nav>
+    <button type="button" class="pill" id="status-pill" data-sheet="status"><i></i><span>Laden…</span></button>
+  </header>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <main class="thuis">
+    <section class="card flow" aria-labelledby="h-nu">
+      <h2 id="h-nu">Nu <em id="live-label">—</em></h2>
+      <div class="flow-box" data-flow></div>
+      <div class="plugs" id="plugs" aria-label="Stekkers"></div>
+      <a class="more" data-link="day" hidden>Verloop vandaag in Grafana ›</a>
+    </section>
+
+    <div class="side">
+      <section class="card" aria-labelledby="h-vandaag">
+        <h2 id="h-vandaag">Vandaag <em>00:00 – nu</em></h2>
+        <div class="kpis">
+          <button type="button" class="kpi" data-sheet="opgewekt"><span class="l"><i class="sw" style="--c:var(--zon)"></i>Opgewekt</span><span class="val" data-v="opgewekt">—</span></button>
+          <button type="button" class="kpi" data-sheet="verbruik"><span class="l"><i class="sw" style="--c:var(--huis)"></i>Verbruik</span><span class="val" data-v="verbruik">—</span></button>
+          <button type="button" class="kpi" data-sheet="zelfvoorzienend"><span class="l"><i class="sw" style="--c:var(--deel)"></i>Zelfvoorzienend</span><span class="val" data-v="zelfvoorzienend">—</span></button>
+          <button type="button" class="kpi" data-sheet="net"><span class="l"><i class="sw" style="--c:var(--uit)"></i>Afgenomen · <i class="sw" style="--c:var(--terug)"></i>terug</span><span class="val" data-v="net">—</span></button>
+        </div>
+        <p class="note" data-note="today" hidden>“—”: nog geen meterstanden van vandaag.</p>
+        <a class="more" data-link="period" hidden>Vandaag in Grafana ›</a>
+      </section>
+
+      <section class="card" aria-labelledby="h-geld">
+        <h2 id="h-geld">Geld vandaag <em>00:00 – nu</em></h2>
+        <div class="kpis">
+          <button type="button" class="kpi" data-sheet="rekening"><span class="l">Energierekening</span><span class="val" data-v="rekening">—</span><span class="sub" data-v="rekening-sub"></span></button>
+          <button type="button" class="kpi calc" data-sheet="bespaard"><span class="l">Bespaard door batterij <span class="chip">berekend</span></span><span class="val" data-v="bespaard">—</span><span class="sub">regels van 2027</span></button>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="h-batterij">
+        <h2 id="h-batterij">Batterij <em id="bat-label">live</em></h2>
+        <button type="button" class="batrow" data-sheet="laadniveau" aria-label="Laadniveau">
+          <span class="batbar"><span data-bar></span><span class="lim" data-lim></span></span>
+          <b class="num" data-v="soc">—</b>
+        </button>
+        <div class="kpis">
+          <button type="button" class="kpi" data-sheet="beschikbaar"><span class="l">Nog beschikbaar</span><span class="val" data-v="beschikbaar">—</span></button>
+          <button type="button" class="kpi" data-sheet="geladen"><span class="l">Vandaag geladen · ontladen</span><span class="val" data-v="geladen">—</span></button>
+        </div>
+        <a class="more" data-link="battery" hidden>Batterij in Grafana ›</a>
+      </section>
+    </div>
+  </main>
+
+  <nav class="tabbar" aria-label="Schermen" data-tabs></nav>
+</div>
+
+<!-- Wall view (?kiosk): always dark, no controls, readable from across the room. -->
+<div class="wall" id="wall" hidden>
+  <div class="wall-in" id="wall-in">
+    <div class="wall-flow" data-flow></div>
+    <div class="wall-r">
+      <div class="wall-head"><span class="w-clock" id="w-clock">--:--</span><span class="w-date" id="w-date"></span></div>
+      <div class="wall-k">
+        <div><div class="w-l">Opgewekt vandaag</div><div class="w-big zon" data-v="opgewekt">—</div></div>
+        <div><div class="w-l">Verbruik vandaag</div><div class="w-big" data-v="verbruik">—</div></div>
+        <div><div class="w-l">Zelfvoorzienend</div><div class="w-big deel" data-v="zelfvoorzienend">—</div></div>
+        <div><div class="w-l">Energierekening</div><div class="w-big" data-v="rekening">—</div></div>
+      </div>
+      <div class="wall-foot"><span id="w-status">—</span><span id="w-bat">—</span></div>
+    </div>
+  </div>
+</div>
+
+<dialog class="sheet" id="sheet" aria-labelledby="sheet-title">
+  <form method="dialog" class="sheet-close"><button aria-label="Sluiten">✕</button></form>
+  <div class="grab"></div>
+  <h3 id="sheet-title"></h3>
+  <div id="sheet-body"></div>
+</dialog>
+</body>
+</html>

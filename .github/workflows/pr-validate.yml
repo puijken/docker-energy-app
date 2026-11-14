@@ -1,0 +1,31 @@
+name: Validate PR Build
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # Required for `load: true` to export the built image into the local docker daemon.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build Docker image (no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: energy-app:pr
+
+      # Building proves nothing about runtime: a Starlette, uvicorn or psycopg bump still builds
+      # cleanly and only fails on the first request. This runs the image against a throwaway
+      # Postgres with stand-in views and checks the page, the API, the stream and the empty state.
+      - name: Smoke test
+        run: ./smoke_test.sh energy-app:pr
