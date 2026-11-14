@@ -36,56 +36,69 @@ const state = { config: { links: {}, plugLabels: {}, liveInterval: 5, staleAfter
 const wallMode = new URLSearchParams(location.search).has("kiosk");
 
 // ---------- flow picture: who feeds whom (app_live.flow_*_w, derived in SQL from measurements) ----------
-// Sun on top, house in the middle, battery and grid at the bottom: every pair has its own line and
-// none cross. Green = solar going somewhere; red = drawn from the grid or from the battery.
+// Laid out like Grafana's Stroomschema: sun on top, grid left, house right, battery at the bottom, gas and
+// the outdoor temperature in the top corners. Every pair has its own line; idle routes stay as faint grey
+// dashes so the picture keeps its shape. Green = solar going somewhere; red = drawn from the grid or the
+// battery. Each circle: icon, today's kWh, the live value.
+const FLOW_R = 46;
 const FLOW_LINES = [
   // name, path (source -> target), label x, y, anchor
-  ["sun-bat", "M154.9 73.1 L81 205.9", 106, 133, "end"],
-  ["sun-house", "M170 77 L170 123", 170, 104, "middle"],
-  ["sun-grid", "M185.1 73.1 L259 205.9", 234, 133, "start"],
-  ["bat-house", "M93.3 216.8 L140.3 182", 124, 214, "middle"],
-  ["grid-house", "M246.7 216.8 L199.7 182", 216, 214, "middle"],
-  ["bat-grid", "M101 240 L239 240", 170, 233, "middle"],
+  ["sun-bat", "M180 104 L180 210", 187, 136, "start"],
+  ["sun-house", "M215 89 Q212 131 271 121", 237, 110, "start"],
+  ["sun-grid", "M145 89 Q148 131 89 121", 123, 110, "end"],
+  ["bat-house", "M215 227 Q212 185 271 195", 237, 210, "start"],
+  ["bat-grid", "M145 227 Q148 185 89 195", 123, 210, "end"],
+  ["grid-house", "M102 158 L256 158", 130, 151, "middle"],
 ];
+const FLOW_ICONS = {
+  zon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/>',
+  huis: '<path d="M3 11 12 3.5 21 11"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5.5h4V20"/>',
+  net: '<path d="M13 2.5 4.5 13.5H11L10 21.5l8.5-11H12z"/>',
+  bat: '<rect x="2.5" y="7" width="16.5" height="10" rx="2"/><path d="M21.5 10.5v3"/><path d="M11.5 8.8 9 12.2h3.5L10 15.6"/>',
+  gas: '<path d="M12 2.5c.8 3.3 5.5 5.6 5.5 10.6a5.5 5.5 0 0 1-11 0c0-2.6 1.4-4.3 2.6-5.4.2 1.6.9 2.7 1.9 3.3.1-3.2 1-5.6 1-8.5z"/>',
+  buiten: '<path d="M14 14.6V5a2 2 0 0 0-4 0v9.6a4 4 0 1 0 4 0z"/><path d="M12 11v6"/>',
+};
+const icon = (key, x, y, size) =>
+  `<svg x="${x - size / 2}" y="${y}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${FLOW_ICONS[key]}</svg>`;
 
+// One main circle. rows: [key, dy, size, class] text lines; the value line has its unit as a tspan.
+function flowNode(key, sheet, label, cx, cy, color, rows) {
+  const lines = rows.map(([k, dy, size, cls]) => cls === "big"
+    ? `<text x="${cx}" y="${cy + dy}" text-anchor="middle" class="big" font-size="${size}" fill="var(--fg)"><tspan data-t="${k}">—</tspan><tspan data-t="${k}-u" class="u" font-size="${Math.round(size * 0.6)}" dx="2"></tspan></text>`
+    : `<text data-t="${k}" x="${cx}" y="${cy + dy}" text-anchor="middle" font-size="${size}" fill="var(--muted)"></text>`).join("");
+  return `<g class="node" data-sheet="${sheet}" data-node="${key}" tabindex="0" role="button" aria-label="${label}" style="--c:${color}">
+      <circle class="ring" cx="${cx}" cy="${cy}" r="${FLOW_R}"/>
+      <g class="ic">${icon(key, cx, cy - 39, 17)}</g>${lines}
+    </g>`;
+}
+
+// A small corner circle (gas, outdoor temperature): icon and value inside, a caption under it.
+function flowCorner(key, sheet, label, cx, cy, color) {
+  return `<g class="node" data-sheet="${sheet}" data-node="${key}" tabindex="0" role="button" aria-label="${label}" style="--c:${color}">
+      <circle class="ring small" cx="${cx}" cy="${cy}" r="27"/>
+      <g class="ic">${icon(key, cx, cy - 20, 13)}</g>
+      <text data-t="${key}" x="${cx}" y="${cy + 10}" text-anchor="middle" class="big" font-size="12.5" fill="var(--fg)">—</text>
+      <text data-t="${key}-l" x="${cx}" y="${cy + 43}" text-anchor="middle" font-size="10.5" fill="var(--muted)"></text>
+    </g>`;
+}
+
+let flowCount = 0;
 function flowSvg() {
+  const id = `f${flowCount++}`; // marker ids per picture: the wall view has its own copy of the SVG
+  const marker = (name, color) => `<marker id="${id}-${name}" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0.5 10 5 0 9.5z" fill="${color}"/></marker>`;
   const lines = FLOW_LINES.map(([n, d]) => `<path class="line off" data-line="${n}" d="${d}" stroke="var(--eigen)"/>`).join("");
-  const labels = FLOW_LINES.map(([n, , x, y, anchor]) => `<text data-t="${n}-line" x="${x}" y="${y}" font-size="12.5" fill="var(--muted)" text-anchor="${anchor}" stroke="var(--card)" stroke-width="5" stroke-linejoin="round" paint-order="stroke"></text>`).join("");
+  const labels = FLOW_LINES.map(([n, , x, y, anchor]) => `<text data-t="${n}-line" class="lbl" x="${x}" y="${y}" font-size="12" fill="var(--muted)" text-anchor="${anchor}" stroke="var(--card)" stroke-width="5" stroke-linejoin="round" paint-order="stroke"></text>`).join("");
   return `
-  <svg viewBox="0 0 340 302" aria-label="Stroomschema: waar de stroom nu vandaan komt en heen gaat">
+  <svg viewBox="0 0 360 316" data-id="${id}" aria-label="Stroomschema: waar de stroom nu vandaan komt en heen gaat">
+    <defs>${marker("green", "var(--eigen)")}${marker("red", "var(--uit)")}</defs>
     ${lines}
     ${labels}
-    <g class="node" data-sheet="zon" tabindex="0" role="button" aria-label="Zon">
-      <circle cx="170" cy="46" r="31" fill="var(--card)" stroke="var(--zon)" stroke-width="3"/>
-      <text data-t="zon" x="170" y="47" text-anchor="middle" class="big" font-size="16" fill="var(--fg)">—</text>
-      <text data-t="zon-u" x="170" y="62" text-anchor="middle" font-size="10.5" fill="var(--muted)">zon</text>
-    </g>
-    <g class="node" data-sheet="huis" tabindex="0" role="button" aria-label="Huis">
-      <circle cx="170" cy="160" r="37" fill="var(--card)" stroke="var(--huis)" stroke-width="3"/>
-      <text data-t="huis" x="170" y="160" text-anchor="middle" class="big" font-size="19" fill="var(--fg)">—</text>
-      <text data-t="huis-u" x="170" y="176" text-anchor="middle" font-size="10.5" fill="var(--muted)">huis</text>
-    </g>
-    <g class="node" data-sheet="batterij" tabindex="0" role="button" aria-label="Batterij">
-      <circle cx="62" cy="240" r="39" fill="var(--card)" stroke="var(--bat)" stroke-width="3"/>
-      <text data-t="soc" x="62" y="235" text-anchor="middle" class="big" font-size="19" fill="var(--fg)">—</text>
-      <text data-t="bat-state" x="62" y="250" text-anchor="middle" font-size="10.5" fill="var(--muted)"></text>
-      <text data-t="bat-temp" x="62" y="265" text-anchor="middle" font-size="10" fill="var(--muted)"></text>
-      <text data-t="bat-label" x="62" y="296" text-anchor="middle" font-size="11.5" fill="var(--muted)">Batterij</text>
-    </g>
-    <g class="node" data-sheet="netnu" tabindex="0" role="button" aria-label="Net">
-      <circle data-t="net-ring" cx="278" cy="240" r="39" fill="var(--card)" stroke="var(--ref)" stroke-width="3"/>
-      <text data-t="net" x="278" y="239" text-anchor="middle" class="big" font-size="19" fill="var(--fg)">—</text>
-      <text data-t="net-u" x="278" y="255" text-anchor="middle" font-size="10.5" fill="var(--muted)">net</text>
-      <text data-t="net-label" x="278" y="296" text-anchor="middle" font-size="11.5" fill="var(--muted)">Net</text>
-    </g>
-    <g class="node" data-sheet="gas" tabindex="0" role="button" aria-label="Gas vandaag">
-      <text x="14" y="22" font-size="11.5" fill="var(--muted)">Gas vandaag</text>
-      <text data-t="gas" x="14" y="41" class="big" font-size="15" fill="var(--gas)">—</text>
-    </g>
-    <g class="node" data-sheet="buiten" tabindex="0" role="button" aria-label="Buitentemperatuur">
-      <text data-t="buiten-l" x="326" y="22" font-size="11.5" fill="var(--muted)" text-anchor="end">Buiten</text>
-      <text data-t="buiten" x="326" y="41" class="big" font-size="15" fill="var(--fg)" text-anchor="end">—</text>
-    </g>
+    ${flowNode("zon", "zon", "Zon", 180, 54, "var(--zon)", [["zon", 5, 21, "big"], ["zon-k", 21, 10.5], ["zon-v", 32, 9.5]])}
+    ${flowNode("net", "netnu", "Net", 52, 158, "var(--ref)", [["net-s", -13, 10.5], ["net", 8, 20, "big"], ["net-in", 23, 10], ["net-out", 34, 10]])}
+    ${flowNode("huis", "huis", "Huis", 308, 158, "var(--huis)", [["huis", 5, 21, "big"], ["huis-k", 21, 10.5], ["huis-v", 32, 9.5]])}
+    ${flowNode("bat", "batterij", "Batterij", 180, 262, "var(--bat)", [["bat-k", -10, 10.5], ["bat", 11, 20, "big"], ["bat-state", 27, 10.5]])}
+    ${flowCorner("gas", "gas", "Gas vandaag", 30, 30, "var(--gas)")}
+    ${flowCorner("buiten", "buiten", "Buitentemperatuur", 330, 30, "var(--ref)")}
   </svg>`;
 }
 
@@ -95,33 +108,42 @@ function setLine(svg, name, watts, reverse, color) {
   line.classList.toggle("off", !on);
   line.classList.toggle("rev", !!reverse);
   if (color) line.setAttribute("stroke", color);
-  line.style.strokeWidth = on ? `${2 + Math.min(4, Math.abs(watts) / 700)}px` : "2px";
+  const m = on ? `url(#${svg.dataset.id}-${color === "var(--uit)" ? "red" : "green"})` : "none";
+  line.setAttribute("marker-end", on && !reverse ? m : "none");
+  line.setAttribute("marker-start", on && reverse ? m : "none");
+  line.style.strokeWidth = on ? `${2 + Math.min(4, Math.abs(watts) / 700)}px` : "";
   $(`[data-t="${name}-line"]`, svg).textContent = on ? plain(power(Math.abs(watts))) : "";
 }
 
-// Value in a circle: W below 1000, kW above, unit underneath.
-function circleValue(t, key, w, what) {
-  if (!isNum(w)) { t(key, "—"); t(`${key}-u`, what); return; }
+// Value in a circle: W below 1000, kW above; the unit is a smaller tspan after the number.
+function circleValue(t, key, w) {
+  if (!isNum(w)) { t(key, "—"); t(`${key}-u`, ""); return; }
   const a = Math.abs(w);
   t(key, a < 1000 ? fmt[0].format(a) : fmt[2].format(a / 1000));
-  t(`${key}-u`, `${a < 1000 ? "W" : "kW"} ${what}`);
+  t(`${key}-u`, a < 1000 ? "W" : "kW");
 }
 
 function renderFlow(svg, d, today) {
   const t = (k, v) => { const el = $(`[data-t="${k}"]`, svg); if (el) el.textContent = v; };
+  const color = (node, c) => { const g = $(`[data-node="${node}"]`, svg); if (g) g.style.setProperty("--c", c); };
   const has = d && d.flow_time;
-  circleValue(t, "zon", has ? d.solar_w : null, "zon");
-  circleValue(t, "huis", has ? d.house_w : null, "huis");
-  t("soc", d && isNum(d.soc) ? `${fmt[0].format(d.soc)}%` : "—");
+  const GREEN = "var(--eigen)", RED = "var(--uit)";
+  const kwhToday = (key, x) => { const ok = today && isNum(x); t(`${key}-k`, ok ? `${fmt[1].format(x)} kWh` : ""); t(`${key}-v`, ok ? "vandaag" : ""); };
+
+  circleValue(t, "zon", has ? d.solar_w : null);
+  kwhToday("zon", today?.generated_kwh);
+  circleValue(t, "huis", has ? d.house_w : null);
+  kwhToday("huis", today?.consumption_kwh);
+
   const cw = d ? d.battery_cells_w : null;
-  t("bat-state", !d || !isNum(cw) ? "" : cw > 10 ? "ontlaadt" : cw < -10 ? "laadt" : "rust");
-  const bs = $('[data-t="bat-state"]', svg);
-  if (bs) bs.setAttribute("fill", !d || !isNum(cw) || Math.abs(cw) <= 10 ? "var(--muted)" : cw > 0 ? "var(--uit)" : "var(--eigen)");
-  t("bat-temp", d && isNum(d.battery_temp_c) ? `${fmt[0].format(d.battery_temp_c)} °C` : "");
-  t("bat-label", !d || !isNum(cw) || Math.abs(cw) <= 10 ? "Batterij" : `Batterij · ${plain(power(Math.abs(cw)))}`);
+  circleValue(t, "bat", isNum(cw) ? cw : null);
+  const soc = d && isNum(d.soc) ? `${fmt[0].format(d.soc)} %` : "—";
+  t("bat-k", d && isNum(d.battery_temp_c) ? `${soc} · ${fmt[0].format(d.battery_temp_c)} °C` : soc);
+  const idle = !d || !isNum(cw) || Math.abs(cw) <= 10;
+  t("bat-state", !d || !isNum(cw) ? "" : idle ? "rust" : cw > 0 ? "ontlaadt" : "laadt");
+  $('[data-t="bat-state"]', svg)?.setAttribute("fill", idle ? "var(--muted)" : cw > 0 ? RED : GREEN);
 
   const f = (k) => (has ? d[`flow_${k}_w`] : null);
-  const GREEN = "var(--eigen)", RED = "var(--uit)";
   setLine(svg, "sun-bat", f("sun_bat"), false, GREEN);
   setLine(svg, "sun-house", f("sun_house"), false, GREEN);
   setLine(svg, "sun-grid", f("sun_grid"), false, GREEN);
@@ -133,23 +155,22 @@ function renderFlow(svg, d, today) {
   if (gb >= 10 && gb >= bg) setLine(svg, "bat-grid", gb, true, RED);
   else setLine(svg, "bat-grid", bg, false, RED);
 
+  // Grid: ring and word follow the direction (red = afname, green = teruglevering, grey = about zero);
+  // today's import and export inside.
   const g = has ? d.grid_w : null;
-  const ring = $('[data-t="net-ring"]', svg), unitEl = $('[data-t="net-u"]', svg);
-  circleValue(t, "net", isNum(g) && Math.abs(g) >= 10 ? g : isNum(g) ? 0 : null, "");
-  if (isNum(g) && g >= 10) {
-    ring.setAttribute("stroke", RED); unitEl.setAttribute("fill", RED);
-    t("net-u", `${Math.abs(g) < 1000 ? "W" : "kW"} afname`);
-  } else if (isNum(g) && g <= -10) {
-    ring.setAttribute("stroke", GREEN); unitEl.setAttribute("fill", GREEN);
-    t("net-u", `${Math.abs(g) < 1000 ? "W" : "kW"} terug`);
-  } else {
-    ring.setAttribute("stroke", "var(--ref)"); unitEl.setAttribute("fill", "var(--muted)");
-    t("net-u", isNum(g) ? "W net" : "net");
-  }
+  circleValue(t, "net", isNum(g) && Math.abs(g) >= 10 ? g : isNum(g) ? 0 : null);
+  const ns = $('[data-t="net-s"]', svg);
+  if (isNum(g) && g >= 10) { color("net", RED); t("net-s", "afname"); ns?.setAttribute("fill", RED); }
+  else if (isNum(g) && g <= -10) { color("net", GREEN); t("net-s", "terug"); ns?.setAttribute("fill", GREEN); }
+  else { color("net", "var(--ref)"); t("net-s", ""); }
+  t("net-in", today && isNum(today.import_kwh) ? `→ ${fmt[1].format(today.import_kwh)} kWh` : "");
+  t("net-out", today && isNum(today.export_kwh) ? `← ${fmt[1].format(today.export_kwh)} kWh` : "");
+
   t("gas", today && isNum(today.gas_m3) ? `${fmt[2].format(today.gas_m3)} m³` : "—");
+  t("gas-l", "vandaag");
   const oc = d ? d.outdoor_c : null;
   t("buiten", isNum(oc) ? `${fmt[1].format(oc)} °C` : "—");
-  t("buiten-l", d && d.outdoor_time ? `Buiten ${hm(d.outdoor_time)}` : "Buiten");
+  t("buiten-l", d && d.outdoor_time ? `buiten ${hm(d.outdoor_time)}` : "buiten");
 }
 
 // ---------- rendering ----------
@@ -181,7 +202,7 @@ function liveAge() {
 function renderLive() {
   const d = state.live?.data || null;
   const today = state.today?.data || null;
-  $$("[data-flow] svg").forEach((svg) => renderFlow(svg, d, today));
+  $$("[data-flow] > svg").forEach((svg) => renderFlow(svg, d, today));
 
   const plugs = $("#plugs");
   const list = d?.plugs || [];
@@ -213,7 +234,7 @@ function renderToday() {
   setV("rekening-sub", t && isNum(t.net_eur) ? `stroom ${num((t.import_eur ?? 0) - (t.export_eur ?? 0), 2)} · gas ${num(t.gas_eur, 2)} · vast ${num(t.fixed_eur, 2)}` : "geen gegevens vandaag");
   setV("bespaard", s && isNum(s.savings_eur) ? `≈ ${eur(s.savings_eur)}` : "—");
   setV("geladen", t && isNum(t.battery_charged_kwh) ? `${num(t.battery_charged_kwh)}<small>· ${num(t.battery_discharged_kwh)} kWh</small>` : "—");
-  $$("[data-flow] svg").forEach((svg) => renderFlow(svg, state.live?.data, t));
+  $$("[data-flow] > svg").forEach((svg) => renderFlow(svg, state.live?.data, t));
   renderForecast();
 }
 

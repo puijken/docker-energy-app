@@ -9,9 +9,11 @@ card can link to the matching Grafana dashboard.
 
 ## What it shows (Thuis)
 
-- **Nu:** a flow picture whose lines follow the real wiring, so each one is a measurement: panels →
-  battery unit, battery unit → house (AC output), grid ↔ house. Plus gas today, the outdoor
-  temperature (with the time of the reading) and the smart plugs.
+- **Nu:** a flow picture of who feeds whom: sun on top, grid left, house right, battery at the
+  bottom, one line per pair (`app_live.flow_*_w`), coloured by source (green = solar, red = grid or
+  battery), with idle routes as faint grey dashes. Each circle holds an icon, the live value and,
+  where it applies, today's kWh. Gas today and the outdoor temperature (with the time of the
+  reading) sit in the top corners; the smart plugs are chips under the picture.
 - **Vandaag:** generated with the share used yourself (not exported: used directly or stored),
   house use, self-sufficiency, imported and exported, 00:00 – now.
 - **Geld vandaag:** the energy bill so far, and an estimate of what the battery saved today under the
