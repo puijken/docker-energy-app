@@ -57,6 +57,19 @@
         <a class="more" data-link="period" hidden>Vandaag in Grafana ›</a>
       </section>
 
+      <section class="card" aria-labelledby="h-batterij">
+        <h2 id="h-batterij">Batterij <em id="bat-label">live</em></h2>
+        <button type="button" class="batrow" data-sheet="laadniveau" aria-label="Laadniveau">
+          <span class="batbar"><span data-bar></span><span class="lim" data-lim></span></span>
+          <b class="num" data-v="soc">—</b>
+        </button>
+        <div class="kpis">
+          <button type="button" class="kpi" data-sheet="beschikbaar"><span class="l">Nog beschikbaar</span><span class="val" data-v="beschikbaar">—</span></button>
+          <button type="button" class="kpi" data-sheet="geladen"><span class="l">Vandaag geladen · ontladen</span><span class="val" data-v="geladen">—</span></button>
+        </div>
+        <a class="more" data-link="battery" hidden>Batterij in Grafana ›</a>
+      </section>
+
       <section class="card" aria-labelledby="h-verwacht">
         <h2 id="h-verwacht">Zon verwacht <em id="fc-label">—</em></h2>
         <div class="kpis">
@@ -71,19 +84,6 @@
           <button type="button" class="kpi" data-sheet="rekening"><span class="l">Energierekening</span><span class="val" data-v="rekening">—</span><span class="sub" data-v="rekening-sub"></span></button>
           <button type="button" class="kpi calc" data-sheet="bespaard"><span class="l">Bespaard door batterij <span class="chip">berekend</span></span><span class="val" data-v="bespaard">—</span><span class="sub">regels van 2027</span></button>
         </div>
-      </section>
-
-      <section class="card" aria-labelledby="h-batterij">
-        <h2 id="h-batterij">Batterij <em id="bat-label">live</em></h2>
-        <button type="button" class="batrow" data-sheet="laadniveau" aria-label="Laadniveau">
-          <span class="batbar"><span data-bar></span><span class="lim" data-lim></span></span>
-          <b class="num" data-v="soc">—</b>
-        </button>
-        <div class="kpis">
-          <button type="button" class="kpi" data-sheet="beschikbaar"><span class="l">Nog beschikbaar</span><span class="val" data-v="beschikbaar">—</span></button>
-          <button type="button" class="kpi" data-sheet="geladen"><span class="l">Vandaag geladen · ontladen</span><span class="val" data-v="geladen">—</span></button>
-        </div>
-        <a class="more" data-link="battery" hidden>Batterij in Grafana ›</a>
       </section>
     </div>
   </main>
