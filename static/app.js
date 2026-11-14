@@ -37,7 +37,7 @@ const wallMode = new URLSearchParams(location.search).has("kiosk");
 
 // ---------- flow picture: who feeds whom (app_live.flow_*_w, derived in SQL from measurements) ----------
 // Laid out like Grafana's Stroomschema: sun on top, grid left, house right, battery at the bottom, gas and
-// the outdoor temperature in the top corners. Every pair has its own line; idle routes stay as faint grey
+// the outdoor temperature (plain text) in the top corners. Every pair has its own line; idle routes stay as faint grey
 // dashes so the picture keeps its shape. Green = solar going somewhere; red = drawn from the grid or the
 // battery. Each circle: icon, today's kWh, the live value.
 const FLOW_R = 46;
@@ -98,7 +98,10 @@ function flowSvg() {
     ${flowNode("huis", "huis", "Huis", 308, 158, "var(--huis)", [["huis", 5, 21, "big"], ["huis-k", 21, 10.5], ["huis-v", 32, 9.5]])}
     ${flowNode("bat", "batterij", "Batterij", 180, 262, "var(--bat)", [["bat-k", -10, 10.5], ["bat", 11, 20, "big"], ["bat-state", 27, 10.5]])}
     ${flowCorner("gas", "gas", "Gas vandaag", 30, 30, "var(--gas)")}
-    ${flowCorner("buiten", "buiten", "Buitentemperatuur", 330, 30, "var(--ref)")}
+    <g class="node" data-sheet="buiten" tabindex="0" role="button" aria-label="Buitentemperatuur">
+      <text data-t="buiten-l" x="352" y="20" font-size="11.5" fill="var(--muted)" text-anchor="end">Buiten</text>
+      <text data-t="buiten" x="352" y="40" class="big" font-size="16" fill="var(--fg)" text-anchor="end">—</text>
+    </g>
   </svg>`;
 }
 
@@ -170,7 +173,7 @@ function renderFlow(svg, d, today) {
   t("gas-l", "vandaag");
   const oc = d ? d.outdoor_c : null;
   t("buiten", isNum(oc) ? `${fmt[1].format(oc)} °C` : "—");
-  t("buiten-l", d && d.outdoor_time ? `buiten ${hm(d.outdoor_time)}` : "buiten");
+  t("buiten-l", d && d.outdoor_time ? `Buiten ${hm(d.outdoor_time)}` : "Buiten");
 }
 
 // ---------- rendering ----------
@@ -206,7 +209,11 @@ function renderLive() {
 
   const plugs = $("#plugs");
   const list = d?.plugs || [];
-  plugs.innerHTML = list.map((p) => `<button type="button" data-sheet="plugs">${plugIcon(p.name)}<span>${esc(plugLabel(p.name))}</span><b>${plain(power(p.w))}</b></button>`).join("");
+  plugs.innerHTML = list.length
+    ? list.map((p) => `<button type="button" data-sheet="plugs">${plugIcon(p.name)}<span><small>${esc(plugLabel(p.name))}</small><b>${power(p.w)}</b></span></button>`).join("")
+    : '<p class="empty">Geen stekker meldde zich in de laatste 15 minuten.</p>';
+  const sum = list.reduce((a, p) => a + (isNum(p.w) ? p.w : 0), 0);
+  $("#plugs-sum").textContent = list.length ? `live · samen ${plain(power(sum))}` : "live";
 
   // battery card
   const soc = d?.soc;

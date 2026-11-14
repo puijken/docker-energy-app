@@ -30,12 +30,19 @@
   <div class="banner" id="banner" hidden></div>
 
   <main class="thuis">
-    <section class="card flow" aria-labelledby="h-nu">
-      <h2 id="h-nu">Nu <em id="live-label">—</em></h2>
-      <div class="flow-box" data-flow></div>
-      <div class="plugs" id="plugs" aria-label="Stekkers"></div>
-      <a class="more" data-link="day" hidden>Verloop vandaag in Grafana ›</a>
-    </section>
+    <div class="main-col">
+      <section class="card flow" aria-labelledby="h-nu">
+        <h2 id="h-nu">Nu <em id="live-label">—</em></h2>
+        <div class="flow-box" data-flow></div>
+        <a class="more" data-link="day" hidden>Verloop vandaag in Grafana ›</a>
+      </section>
+
+      <section class="card" aria-labelledby="h-plugs">
+        <h2 id="h-plugs">Stekkers <em id="plugs-sum">live</em></h2>
+        <div class="plugs" id="plugs"></div>
+        <a class="more" data-link="plugs" hidden>Stekkers in Grafana ›</a>
+      </section>
+    </div>
 
     <div class="side">
       <section class="card" aria-labelledby="h-vandaag">
