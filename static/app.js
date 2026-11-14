@@ -130,6 +130,20 @@ function renderFlow(svg, d, today) {
 
 // ---------- rendering ----------
 const setV = (key, html) => $$(`[data-v="${key}"]`).forEach((el) => { el.innerHTML = html; });
+// Small icon per plug, picked from its name or label; a plug when nothing matches.
+const PLUG_ICONS = [
+  [/\b(tv|televisie|television)\b/i, '<rect x="2.5" y="5" width="19" height="12.5" rx="2"/><path d="M8 21h8M12 17.5V21"/>'],
+  [/router|wifi|modem|access ?point/i, '<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M9 16a4.5 4.5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1.2"/>'],
+  [/server|\bnas\b/i, '<rect x="3.5" y="3.5" width="17" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="17" height="7" rx="1.5"/><path d="M7.5 7h.01M7.5 17h.01"/>'],
+  [/airco|\bac\b|klima|warmtepomp|heat ?pump|fan|ventilat/i, '<path d="M12 2.5v19M3.8 7.25l16.4 9.5M3.8 16.75l16.4-9.5M9.5 4l2.5 2.5L14.5 4M9.5 20l2.5-2.5 2.5 2.5"/>'],
+  [/bureau|desk|\bpc\b|computer|laptop/i, '<rect x="4.5" y="5" width="15" height="10.5" rx="1.5"/><path d="M2 19h20"/>'],
+];
+const PLUG_DEFAULT = '<path d="M9 2.5v5M15 2.5v5M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0zM12 16.5v5"/>';
+function plugIcon(name) {
+  const text = `${name} ${plugLabel(name)}`;
+  const hit = PLUG_ICONS.find(([re]) => re.test(text));
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${hit ? hit[1] : PLUG_DEFAULT}</svg>`;
+}
 const plugLabel = (name) => state.config.plugLabels[name] || (name ? name[0].toUpperCase() + name.slice(1) : "?");
 const secondsBetween = (later, earlier) => (later && earlier ? (new Date(later) - new Date(earlier)) / 1000 : null);
 
@@ -147,7 +161,7 @@ function renderLive() {
 
   const plugs = $("#plugs");
   const list = d?.plugs || [];
-  plugs.innerHTML = list.map((p) => `<button type="button" data-sheet="plugs">${esc(plugLabel(p.name))} ${plain(power(p.w))}</button>`).join("");
+  plugs.innerHTML = list.map((p) => `<button type="button" data-sheet="plugs">${plugIcon(p.name)}<span>${esc(plugLabel(p.name))}</span><b>${plain(power(p.w))}</b></button>`).join("");
 
   // battery card
   const soc = d?.soc;
