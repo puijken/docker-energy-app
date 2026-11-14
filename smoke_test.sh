@@ -30,14 +30,14 @@ done
 for _ in $(seq 30); do docker exec "$ID-db" pg_isready -h 127.0.0.1 -q && break; sleep 1; done
 
 docker run -d --name "$ID-app" --network "$ID" -p "127.0.0.1:$PORT:8080" \
-  -e DB_HOST="$ID-db" -e DB_PASSWORD=smoke -e LIVE_INTERVAL=1 -e TODAY_INTERVAL=2 \
+  -e DB_HOST="$ID-db" -e DB_PASSWORD=smoke -e LIVE_INTERVAL=1 -e TODAY_INTERVAL=2 -e BATTERY_INTERVAL=2 \
   -e PLUG_LABELS="tv=TV,router=Router" -e LINK_DAY="https://grafana.example/d/day" "$IMAGE" >/dev/null
 BASE="http://127.0.0.1:$PORT"
 for _ in $(seq 30); do curl -fsS "$BASE/healthz" >/dev/null 2>&1 && break; sleep 1; done
 
 check() { # name, path, expected substring
   local body; body="$(curl -fsS --max-time 10 "$BASE$2")" || fail "$1: request failed"
-  grep -q -- "$3" <<<"$body" || fail "$1: missing '$3'"
+  grep -qF -- "$3" <<<"$body" || fail "$1: missing '$3'"
   echo "ok   $1"
 }
 check "health"     /healthz '"ok":true'
@@ -59,6 +59,11 @@ check "zelf benut" /api/today '"self_consumption":1.0'
 check "today"      /api/today '"net_eur":2.47'
 check "savings"    /api/today '"savings_eur":0.4'
 check "forecast"   /api/today '"tomorrow_kwh":3.5'
+check "battery"    /api/battery '"ok":true'
+check "soc today"  /api/battery '"charge_limit_soc":100.0'
+check "bat counts" /api/battery '"full_cycles":1.48'
+check "efficiency" /api/battery '"label":"< 250 W"'
+check "day axis"   /api/battery '"day_end":'
 
 # The stream must deliver a live event (the cache) and a fresh one from the background reader.
 stream="$(curl -sN --max-time 4 "$BASE/api/stream" || true)"
@@ -77,6 +82,8 @@ sleep 5
 check "empty live"  /api/live '"flow_time":null'
 check "empty today" /api/today '"data":null'
 check "empty fcast" /api/today '"forecast":null'
+check "empty bat"   /api/battery '"soc":[]'
+check "empty soh"   /api/battery '"soh":null'
 
 # Database gone: the app keeps answering with ok:false and the last values.
 docker stop "$ID-db" >/dev/null

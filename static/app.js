@@ -215,9 +215,14 @@ function renderLive() {
 
   // battery card
   const soc = d?.soc;
-  $("[data-bar]").style.width = isNum(soc) ? `${Math.max(0, Math.min(100, soc))}%` : "0";
-  const lim = $("[data-lim]");
-  if (isNum(soc) && isNum(d?.discharge_limit_soc)) { lim.style.display = "block"; lim.style.left = `${d.discharge_limit_soc}%`; } else lim.style.display = "none";
+  $$("[data-bar]").forEach((bar) => { bar.style.width = isNum(soc) ? `${Math.max(0, Math.min(100, soc))}%` : "0"; });
+  $$("[data-lim]").forEach((lim) => {
+    if (isNum(soc) && isNum(d?.discharge_limit_soc)) { lim.style.display = "block"; lim.style.left = `${d.discharge_limit_soc}%`; } else lim.style.display = "none";
+  });
+  const cw = d?.battery_cells_w;
+  setV("bat-w", isNum(cw) ? power(Math.abs(cw)) : "—");
+  setV("bat-state", !isNum(cw) ? "" : Math.abs(cw) <= 10 ? "rust" : cw > 0 ? '<span style="color:var(--uit)">ontlaadt</span>' : '<span style="color:var(--eigen)">laadt</span>');
+  setV("bat-temp", d && isNum(d.battery_temp_c) ? unit(fmt[0].format(d.battery_temp_c), "°C") : "—");
   setV("soc", isNum(soc) ? `${fmt[0].format(soc)}%` : "—");
   setV("beschikbaar", kwh(d?.available_kwh));
   renderFreshness();
@@ -241,6 +246,7 @@ function renderToday() {
   setV("geladen", t && isNum(t.battery_charged_kwh) ? `${num(t.battery_charged_kwh)}<small>· ${num(t.battery_discharged_kwh)} kWh</small>` : "—");
   $$("[data-flow] > svg").forEach((svg) => renderFlow(svg, state.live?.data, t));
   renderForecast();
+  if (state.battery) renderBattery();
 }
 
 const weekday = (offsetDays) => new Date(Date.now() + offsetDays * 86400000).toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "short", timeZone: TZ });
@@ -538,6 +544,75 @@ const SHEETS = {
       ["Bron", "thuisbatterij"],
     ]) + link("battery", "Geladen en ontladen in Grafana") };
   },
+  temperatuur() {
+    const d = state.live?.data, sm = state.battery?.summary;
+    return { title: `Temperatuur batterij · ${d && isNum(d.battery_temp_c) ? fmt[0].format(d.battery_temp_c) + " °C" : "—"}`, body: rows([
+      ["Wat", "De temperatuur die de batterij zelf meldt, dezelfde als in de Anker-app (welke sensor precies is niet bekend)."],
+      ["Vandaag", sm && isNum(sm.temp_min_c) ? `laagste ${fmt[0].format(sm.temp_min_c)} °C, hoogste ${fmt[0].format(sm.temp_max_c)} °C` : "—"],
+      ["Periode", LIVE_PERIOD() + "; laagste en hoogste: vandaag 00:00 – nu"],
+      ["Bron", "thuisbatterij"],
+    ]) + link("tech", "Temperatuur in Grafana (Techniek)") };
+  },
+  socdag() {
+    const sm = state.battery?.summary;
+    return { title: "Laadniveau vandaag", body: rows([
+      ["Wat", "Hoe vol de batterij was, van middernacht tot nu, gemiddeld per 5 minuten."],
+      ["Gestippeld", "de onder- en bovengrens die je in de Anker-app instelt; de batterij ontlaadt niet onder de ondergrens"],
+      ["Vandaag", sm && isNum(sm.min_soc) ? `laagste ${fmt[0].format(sm.min_soc)}%, hoogste ${fmt[0].format(sm.max_soc)}%` : "—"],
+      ["Periode", "vandaag 00:00 – nu, elke minuut bijgewerkt"],
+      ["Bron", "thuisbatterij"],
+    ]) + link("battery", "Laadniveau in Grafana") };
+  },
+  sindsnieuw() {
+    const sm = state.battery?.summary;
+    return { title: "Geladen · ontladen sinds nieuw", body: rows([
+      ["Geladen", sm ? `${plain(kwh(sm.charged_total_kwh))} de cellen in` : "—"],
+      ["Ontladen", sm ? `${plain(kwh(sm.discharged_total_kwh))} de cellen uit, inclusief wat de batterij zelf gebruikt` : "—"],
+      ["Berekening", "de levenslange tellers van de batterij, in stappen van 0,1 kWh"],
+      ["Periode", sm?.first_reading ? `sinds de batterij nieuw is; deze app leest hem sinds ${new Date(sm.first_reading).toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric", timeZone: TZ })}` : "sinds de batterij nieuw is"],
+      ["Bron", "thuisbatterij"],
+    ]) + link("battery", "Batterij in Grafana") };
+  },
+  celrendement() {
+    const sm = state.battery?.summary;
+    const since = sm?.efficiency_since ? new Date(sm.efficiency_since).toLocaleDateString("nl-NL", { day: "numeric", month: "short", timeZone: TZ }) : null;
+    return { title: `Rendement aan de cellen · ${sm && isNum(sm.cell_efficiency_30d) ? fmt[0].format(sm.cell_efficiency_30d * 100) + "%" : "—"}`, body: rows([
+      ["Wat", "Welk deel van wat de cellen in ging er ook weer uit kwam."],
+      ["Berekening", "(ontladen + verandering in opgeslagen energie) ÷ geladen; de verandering = verschil in laadniveau × capaciteit, zodat een volle of lege batterij aan het eind niet meetelt"],
+      ["Periode", since ? `laatste 30 dagen (metingen vanaf ${since}); pas vanaf 3 kWh geladen, anders “—”` : "laatste 30 dagen; pas vanaf 3 kWh geladen"],
+      ["Geladen", sm ? plain(kwh(sm.charged_30d_kwh)) : "—"],
+      ["Bron", "tellers en laadniveau van de thuisbatterij"],
+    ]) + link("battery", "Rendement in Grafana") };
+  },
+  rendement() {
+    return { title: "Rendement per vermogen", body: rows([
+      ["Wat", "Welk deel van het vermogen dat erin gaat er aan de andere kant uitkomt, per vermogensband. Zo zie je bij welk vermogen de batterij het zuinigst is."],
+      ["Zon → batterij + huis", "(in de cellen + naar het huis) ÷ zon, tijdens laden uit zon"],
+      ["Batterij → huis", "naar het huis ÷ uit de cellen, tijdens ontladen zonder zon"],
+      ["Stopcontact → batterij", "in de cellen ÷ uit het stopcontact, tijdens laden van het net"],
+      ["Zon → huis", "naar het huis ÷ zon, als de batterij vol is"],
+      ["Periode", "laatste 30 dagen; een band telt pas vanaf 5 minuten metingen"],
+      ["Bron", "thuisbatterij, metingen om de paar seconden"],
+    ]) + link("battery", "Rendement in Grafana") };
+  },
+  gezondheid() {
+    const sm = state.battery?.summary;
+    return { title: `Gezondheid · ${sm && isNum(sm.soh) ? fmt[0].format(sm.soh) + "%" : "—"}`, body: rows([
+      ["SOH", "state of health: hoeveel van de oorspronkelijke capaciteit er volgens de batterij nog is. Een getal van de batterij zelf, niet door ons berekend."],
+      ["Capaciteit", sm && isNum(sm.rated_kwh) ? `${plain(kwh(sm.rated_kwh))}, zoals de batterij meldt (verkocht als 7 kWh)` : "—"],
+      ["Periode", "live"],
+      ["Bron", "thuisbatterij"],
+    ]) + link("tech", "Gezondheid in Grafana (Techniek)") };
+  },
+  cycli() {
+    const sm = state.battery?.summary;
+    return { title: `Volle cycli · ${sm && isNum(sm.full_cycles) ? fmt[1].format(sm.full_cycles) : "—"}`, body: rows([
+      ["Wat", "Hoe vaak de batterij in totaal volgeladen werd: twee keer half vol telt als één cyclus."],
+      ["Berekening", sm ? `geladen sinds nieuw ÷ capaciteit = ${num(sm.charged_total_kwh)} ÷ ${num(sm.rated_kwh)} kWh` : "geladen sinds nieuw ÷ capaciteit"],
+      ["Periode", "sinds de batterij nieuw is"],
+      ["Bron", "thuisbatterij"],
+    ]) + link("battery", "Batterij in Grafana") };
+  },
   status() {
     const list = sources().map((s) => [s.name, `<span class="dot" style="background:var(${s.ok ? "--ok" : "--warn"})"></span>${esc(s.text)}`]);
     const w = warnings();
@@ -551,7 +626,7 @@ const SHEETS = {
       '<li><a href="#" data-sheet="status">Status van de bronnen</a></li>',
       '<li><a href="?kiosk">Wandweergave</a></li>',
     ].filter(Boolean).join("");
-    return { title: "Meer", body: `<ul>${items}</ul><p style="color:var(--muted)">Pilot: alleen Thuis is al in de app. Historie, Geld en Batterij openen voorlopig Grafana.</p>` };
+    return { title: "Meer", body: `<ul>${items}</ul><p style="color:var(--muted)">Thuis en Batterij staan in de app. Historie en Geld openen voorlopig Grafana.</p>` };
   },
 };
 
@@ -581,6 +656,122 @@ document.addEventListener("keydown", (e) => {
 });
 $("#sheet").addEventListener("click", (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 
+// ---------- Batterij screen (/api/battery: app_battery_soc_today, _summary, _efficiency) ----------
+// Fetched only while the screen is open, every batteryInterval seconds; live values (charge level,
+// power, temperature) come from the same stream as Thuis.
+const EFF_PATHS = [
+  ["solar", "Zon → batterij + huis", "var(--zon)"],
+  ["battery", "Batterij → huis", "var(--bat)"],
+  ["socket", "Stopcontact → batterij", "var(--uit)"],
+  ["direct", "Zon → huis (batterij vol)", "var(--eigen)"],
+];
+
+// Charge level over today as an SVG line: 00:00 – 24:00 on x (23 or 25 hours on a clock change
+// day), 0 – 100 % on y, the two limits as dashed steps. A gap of more than 15 minutes breaks the line.
+function socChart(rows, dayStart, dayEnd, width) {
+  // drawn at the card's own width, so the 12 px labels stay 12 px on a phone
+  const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(240, Math.max(170, W * 0.36)));
+  const L = 38, R = 6, T = 10, B = 26;
+  const t0 = new Date(dayStart).getTime(), t1 = new Date(dayEnd).getTime();
+  const x = (t) => L + ((new Date(t).getTime() - t0) / (t1 - t0)) * (W - L - R);
+  const y = (v) => T + (1 - v / 100) * (H - T - B);
+  const grid = [0, 25, 50, 75, 100].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="g"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="ax">${v}%</text>`).join("");
+  const hours = Math.round((t1 - t0) / 3600000);
+  const ticks = [0, 6, 12, 18, hours].map((h) => `<text x="${x(t0 + h * 3600000)}" y="${H - 6}" text-anchor="${h === 0 ? "start" : h === hours ? "end" : "middle"}" class="ax">${String(h === hours ? 24 : h).padStart(2, "0")}:00</text>`).join("");
+  // runs of [x, y] points per series; a gap of more than 15 minutes starts a new run
+  const runs = (key) => {
+    const out = []; let prev = null;
+    for (const r of rows) {
+      if (!isNum(r[key])) { prev = null; continue; }
+      if (!prev || new Date(r.time) - new Date(prev.time) > 15 * 60000) out.push([]);
+      out[out.length - 1].push([x(r.time), y(r[key])]);
+      prev = r;
+    }
+    return out;
+  };
+  const f1 = (n) => n.toFixed(1);
+  const line = (rs, step) => rs.map((pts) => pts.map(([px, py], i) => (i === 0 ? `M${f1(px)} ${f1(py)}` : step ? `H${f1(px)}V${f1(py)}` : `L${f1(px)} ${f1(py)}`)).join("")).join("");
+  const socRuns = runs("soc");
+  const soc = { d: line(socRuns, false), last: socRuns.length ? socRuns[socRuns.length - 1].slice(-1)[0] : null };
+  const up = { d: line(runs("charge_limit_soc"), true) }, low = { d: line(runs("discharge_limit_soc"), true) };
+  const area = socRuns.map((pts) => `M${f1(pts[0][0])} ${y(0)}${pts.map(([px, py]) => `L${f1(px)} ${f1(py)}`).join("")}L${f1(pts[pts.length - 1][0])} ${y(0)}Z`).join("");
+  const dot = soc.last ? `<circle cx="${soc.last[0]}" cy="${soc.last[1]}" r="4" fill="var(--bat)" stroke="var(--card)" stroke-width="2"/>` : "";
+  const empty = rows.length ? "" : `<text x="${(L + W - R) / 2}" y="${y(50)}" text-anchor="middle" class="ax">—: nog geen metingen vandaag</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Laadniveau vandaag">
+    <defs><linearGradient id="socfill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--bat)" stop-opacity=".32"/><stop offset="1" stop-color="var(--bat)" stop-opacity=".03"/></linearGradient></defs>
+    ${grid}${ticks}
+    <path d="${area}" fill="url(#socfill)"/>
+    <path d="${up.d}" class="lim-line"/><path d="${low.d}" class="lim-line"/>
+    <path d="${soc.d}" fill="none" stroke="var(--bat)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dot}${empty}
+  </svg>`;
+}
+
+function renderEfficiency(rows) {
+  const box = $("[data-eff]");
+  if (!box) return;
+  const used = EFF_PATHS.filter(([k]) => (rows || []).some((r) => isNum(r[k])));
+  const bands = (rows || []).filter((r) => used.some(([k]) => isNum(r[k])));
+  if (!bands.length) { box.innerHTML = '<p class="empty">—: nog te weinig metingen (een vermogensband telt vanaf 5 minuten).</p>'; return; }
+  const legend = `<p class="legend">${used.map(([, label, c]) => `<span><i class="sq" style="--c:${c}"></i>${label}</span>`).join("")}</p>`;
+  const body = bands.map((r) => `<button type="button" class="eff-row" data-sheet="rendement"><span class="eff-l">${esc(r.label)}</span><span class="eff-bars">${
+    used.map(([k, label, c]) => isNum(r[k])
+      ? `<span class="eff-bar" title="${label}"><span style="--c:${c};width:${Math.max(0, Math.min(100, r[k] * 100)).toFixed(1)}%"></span><b>${fmt[0].format(r[k] * 100)}%</b></span>`
+      : "").join("")}</span></button>`).join("");
+  box.innerHTML = legend + body;
+}
+
+function renderBattery() {
+  const b = state.battery;
+  const s = b?.summary || null;
+  const chart = $("[data-soc-chart]");
+  if (chart && b?.soc && b.day_start) chart.innerHTML = socChart(b.soc, b.day_start, b.day_end, chart.clientWidth);
+  setV("soc-range", s && isNum(s.min_soc) ? `vandaag ${fmt[0].format(s.min_soc)}–${fmt[0].format(s.max_soc)}%` : "");
+  renderEfficiency(b?.efficiency);
+  const t = state.today?.data;
+  setV("socket-today", t && isNum(t.battery_in_kwh) && t.battery_in_kwh >= 0.05 ? `waarvan ${num(t.battery_in_kwh)} kWh uit het stopcontact` : "");
+  setV("sinds-nieuw", s && isNum(s.charged_total_kwh) ? `${num(s.charged_total_kwh)}<small>· ${num(s.discharged_total_kwh)} kWh</small>` : "—");
+  setV("sinds-nieuw-sub", s ? "tellers van de batterij" : "");
+  setV("celrendement", s && isNum(s.cell_efficiency_30d) ? unit(fmt[0].format(s.cell_efficiency_30d * 100), "%") : "—");
+  setV("soh", s && isNum(s.soh) ? unit(fmt[0].format(s.soh), "%") : "—");
+  setV("rated", kwh(s?.rated_kwh));
+  setV("cycli", s && isNum(s.full_cycles) ? fmt[1].format(s.full_cycles) : "—");
+  setV("temp-range", s && isNum(s.temp_min_c) ? `${fmt[0].format(s.temp_min_c)}–${fmt[0].format(s.temp_max_c)}<small>°C</small>` : "—");
+}
+
+let batteryTimer = null;
+async function fetchBattery() {
+  try {
+    const r = await fetch("/api/battery", { cache: "no-store", credentials: "same-origin" });
+    if (r.ok) state.battery = await r.json();
+  } catch { /* offline: keep what we have */ }
+  renderBattery(); refreshSheet();
+}
+
+// ---------- screens: Thuis (default) and Batterij, by the address's #hash ----------
+const SCREENS = { thuis: "Thuis", batterij: "Batterij" };
+function currentScreen() { const h = location.hash.replace("#", ""); return SCREENS[h] ? h : "thuis"; }
+function showScreen() {
+  const name = currentScreen();
+  for (const key of Object.keys(SCREENS)) $(`#scr-${key}`).hidden = key !== name;
+  $("#page-title").textContent = SCREENS[name];
+  document.title = name === "thuis" ? "Energie" : `${SCREENS[name]} · Energie`;
+  $$("[data-tabs] .tab[data-screen]").forEach((a) => {
+    const on = a.dataset.screen === name;
+    a.classList.toggle("on", on);
+    if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
+  clearInterval(batteryTimer); batteryTimer = null;
+  if (name === "batterij" && !wallMode) {
+    fetchBattery();
+    batteryTimer = setInterval(fetchBattery, Math.max(30, state.config.batteryInterval || 60) * 1000);
+  }
+  window.scrollTo(0, 0);
+}
+window.addEventListener("hashchange", showScreen);
+let resizeTimer = null;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (state.battery) renderBattery(); }, 200); });
+
 // ---------- tabs ----------
 const ICONS = {
   thuis: '<path d="M3 11l9-7 9 7v9H3z"/>',
@@ -593,12 +784,12 @@ function renderTabs() {
   const L = state.config.links;
   const tab = (key, label, href) => {
     const svg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${ICONS[key]}</svg>`;
-    if (key === "thuis") return `<a class="tab on" href="./" aria-current="page">${svg}<span>${label}</span></a>`;
+    if (SCREENS[key]) return `<a class="tab" data-screen="${key}" href="#${key === "thuis" ? "" : key}">${svg}<span>${label}</span></a>`;
     if (key === "meer") return `<button type="button" class="tab" data-sheet="meer">${svg}<span>${label}</span></button>`;
     if (!href) return "";
     return `<a class="tab" href="${esc(href)}" target="_blank" rel="noopener" title="${label} in Grafana">${svg}<span>${label} <span class="ext">↗</span></span></a>`;
   };
-  const html = tab("thuis", "Thuis") + tab("historie", "Historie", L.period) + tab("geld", "Geld", L.money) + tab("batterij", "Batterij", L.battery) + tab("meer", "Meer");
+  const html = tab("thuis", "Thuis") + tab("historie", "Historie", L.period) + tab("geld", "Geld", L.money) + tab("batterij", "Batterij") + tab("meer", "Meer");
   $$("[data-tabs]").forEach((n) => { n.innerHTML = html; });
   $$("[data-link]").forEach((a) => {
     const href = L[a.dataset.link];
@@ -682,6 +873,7 @@ async function start() {
   } catch { /* offline: defaults */ }
   if (state.config.timeZone) TZ = state.config.timeZone;
   renderTabs();
+  showScreen();
   if (wallMode) startWall();
   if (state.live) { renderToday(); renderLive(); }
   connect();

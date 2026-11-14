@@ -22,14 +22,14 @@
 <body>
 <div class="shell" id="shell">
   <header class="top">
-    <h1>Thuis</h1>
+    <h1 id="page-title">Thuis</h1>
     <nav class="tabs-wide" aria-label="Schermen" data-tabs></nav>
     <button type="button" class="pill" id="status-pill" data-sheet="status"><i></i><span>Laden…</span></button>
   </header>
 
   <div class="banner" id="banner" hidden></div>
 
-  <main class="thuis">
+  <main class="thuis cols" id="scr-thuis">
     <div class="main-col">
       <section class="card flow" aria-labelledby="h-nu">
         <h2 id="h-nu">Nu <em id="live-label">—</em></h2>
@@ -84,6 +84,60 @@
           <button type="button" class="kpi" data-sheet="rekening"><span class="l">Energierekening</span><span class="val" data-v="rekening">—</span><span class="sub" data-v="rekening-sub"></span></button>
           <button type="button" class="kpi calc" data-sheet="bespaard"><span class="l">Bespaard door batterij <span class="chip">berekend</span></span><span class="val" data-v="bespaard">—</span><span class="sub">regels van 2027</span></button>
         </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Batterij: today's charge level, counters, efficiency per power band and health (app_battery_*, 025). -->
+  <main class="cols" id="scr-batterij" hidden>
+    <div class="side">
+      <section class="card" aria-labelledby="h-bnu">
+        <h2 id="h-bnu">Nu <em>live</em></h2>
+        <button type="button" class="batrow" data-sheet="laadniveau" aria-label="Laadniveau">
+          <span class="batbar"><span data-bar></span><span class="lim" data-lim></span></span>
+          <b class="num" data-v="soc">—</b>
+        </button>
+        <div class="kpis kpis3">
+          <button type="button" class="kpi" data-sheet="batterij"><span class="l">Vermogen cellen</span><span class="val" data-v="bat-w">—</span><span class="sub" data-v="bat-state"></span></button>
+          <button type="button" class="kpi" data-sheet="beschikbaar"><span class="l">Nog beschikbaar</span><span class="val" data-v="beschikbaar">—</span></button>
+          <button type="button" class="kpi" data-sheet="temperatuur"><span class="l">Temperatuur</span><span class="val" data-v="bat-temp">—</span><span class="sub" data-v="bat-temp-sub"></span></button>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="h-gel">
+        <h2 id="h-gel">Geladen en ontladen</h2>
+        <div class="kpis">
+          <button type="button" class="kpi" data-sheet="geladen"><span class="l">Vandaag geladen · ontladen</span><span class="val" data-v="geladen">—</span><span class="sub" data-v="socket-today"></span></button>
+          <button type="button" class="kpi" data-sheet="sindsnieuw"><span class="l">Sinds nieuw geladen · ontladen</span><span class="val" data-v="sinds-nieuw">—</span><span class="sub" data-v="sinds-nieuw-sub"></span></button>
+          <button type="button" class="kpi" data-sheet="celrendement"><span class="l">Rendement aan de cellen</span><span class="val" data-v="celrendement">—</span><span class="sub">laatste 30 dagen</span></button>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="h-gez">
+        <h2 id="h-gez">Gezondheid</h2>
+        <div class="kpis">
+          <button type="button" class="kpi" data-sheet="gezondheid"><span class="l">Gezondheid (SOH)</span><span class="val" data-v="soh">—</span><span class="sub">zoals de batterij meldt</span></button>
+          <button type="button" class="kpi" data-sheet="gezondheid"><span class="l">Capaciteit</span><span class="val" data-v="rated">—</span><span class="sub">volgens de batterij</span></button>
+          <button type="button" class="kpi" data-sheet="cycli"><span class="l">Volle cycli</span><span class="val" data-v="cycli">—</span><span class="sub">sinds nieuw</span></button>
+          <button type="button" class="kpi" data-sheet="temperatuur"><span class="l">Temperatuur vandaag</span><span class="val" data-v="temp-range">—</span></button>
+        </div>
+        <a class="more" data-link="tech" hidden>Batterij in Techniek ›</a>
+      </section>
+    </div>
+
+    <div class="main-col">
+
+      <section class="card" aria-labelledby="h-socdag">
+        <h2 id="h-socdag">Laadniveau vandaag <em>00:00 – nu</em></h2>
+        <button type="button" class="chart" data-sheet="socdag" aria-label="Laadniveau vandaag" data-soc-chart></button>
+        <p class="legend"><span><i class="ln" style="--c:var(--bat)"></i>laadniveau</span><span><i class="ln dash"></i>onder- en bovengrens</span><span data-v="soc-range"></span></p>
+        <a class="more" data-link="battery" hidden>Laadniveau in Grafana ›</a>
+      </section>
+
+      <section class="card" aria-labelledby="h-rend">
+        <h2 id="h-rend">Rendement per vermogen <em>laatste 30 dagen</em></h2>
+        <div class="eff" data-eff></div>
+        <a class="more" data-link="battery" hidden>Rendement in Grafana ›</a>
       </section>
     </div>
   </main>

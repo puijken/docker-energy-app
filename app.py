@@ -2,8 +2,9 @@
 
 It shows what the house is doing now and how today went, from a TimescaleDB that another service
 fills. It never talks to a device and never writes: it connects with a read-only database role and
-reads four views (app_live, app_today, app_battery_savings_today, app_forecast). All calculation rules live in
-those views, so the numbers match whatever else reads the same database.
+reads views only (app_live, app_today, app_battery_savings_today, app_forecast, and app_battery_* for
+the Batterij screen). All calculation rules live in those views, so the numbers match whatever else
+reads the same database.
 
 One reader serves every open screen: a background task reads the live view every LIVE_INTERVAL
 seconds and the day views every TODAY_INTERVAL seconds, but only while at least one screen is
@@ -38,6 +39,8 @@ TODAY_INTERVAL = float(os.environ.get("TODAY_INTERVAL", "60"))
 HEARTBEAT_INTERVAL = float(os.environ.get("HEARTBEAT_INTERVAL", "15"))
 # A plain GET of /api/live or /api/today re-reads the database at most this often.
 API_MIN_AGE = float(os.environ.get("API_MIN_AGE", "4"))
+# The Batterij screen's day chart, counters and efficiency change slowly: read at most this often.
+BATTERY_INTERVAL = float(os.environ.get("BATTERY_INTERVAL", "60"))
 
 
 def conninfo() -> str:
@@ -82,6 +85,7 @@ def client_config() -> dict:
         "timeZone": os.environ.get("TZ", "Europe/Amsterdam"),
         "liveInterval": LIVE_INTERVAL,
         "todayInterval": TODAY_INTERVAL,
+        "batteryInterval": BATTERY_INTERVAL,
         # Ages after which a source counts as stale on the status sheet, in seconds.
         "staleAfter": {"p1": 60, "battery": 60, "gas": 1200, "plug": 900, "outdoor": 10800,
                        "forecast": 10800},
@@ -109,10 +113,18 @@ class Hub:
         self.today: dict | None = None
         self.live_read_at = 0.0
         self.today_read_at = 0.0
+        self.battery: dict | None = None
+        self.battery_read_at = 0.0
         self.last_ok = 0.0
         self.last_error: str | None = None
         self.lock = asyncio.Lock()
         self.wake = asyncio.Event()
+
+    async def _query_all(self, sql: str) -> list[dict]:
+        async with self.pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(sql)
+                return await cur.fetchall()
 
     async def _query_one(self, sql: str) -> dict | None:
         async with self.pool.connection() as conn:
@@ -156,6 +168,27 @@ class Hub:
             log.warning("forecast read failed: %s: %s", type(exc).__name__, exc)
             return (self.today or {}).get("forecast")
 
+    async def refresh_battery(self) -> None:
+        """The Batterij screen: today's charge level, counters and health, efficiency per band.
+        Read on request only (no screen open, no reads), at most every BATTERY_INTERVAL seconds."""
+        try:
+            self.battery = {
+                "ok": True,
+                "soc": await self._query_all("SELECT * FROM app_battery_soc_today"),
+                "summary": await self._query_one("SELECT * FROM app_battery_summary"),
+                "efficiency": await self._query_all("SELECT * FROM app_battery_efficiency"),
+            }
+            # the chart's x axis: local midnight to midnight (23 or 25 hours on a clock change)
+            self.battery.update(await self._query_one(
+                "SELECT date_trunc('day', now()) AS day_start, date_trunc('day', now()) + interval '1 day' AS day_end"))
+        except Exception as exc:
+            log.warning("battery read failed: %s: %s", type(exc).__name__, exc)
+            old = self.battery or {}
+            self.battery = {"ok": False, "soc": old.get("soc"), "summary": old.get("summary"),
+                            "efficiency": old.get("efficiency"), "day_start": old.get("day_start"),
+                            "day_end": old.get("day_end")}
+        self.battery_read_at = time.monotonic()
+
     async def ensure_fresh(self, kind: str) -> None:
         """For plain API calls: re-read only when the cached value is older than API_MIN_AGE."""
         async with self.lock:
@@ -164,6 +197,9 @@ class Hub:
                 await self.refresh_live()
             if kind == "today" and (self.today is None or now - self.today_read_at > TODAY_INTERVAL):
                 await self.refresh_today()
+            if kind == "battery" and (self.battery is None or not self.battery["ok"]
+                                      or now - self.battery_read_at > BATTERY_INTERVAL):
+                await self.refresh_battery()
 
     def broadcast(self, event: str, payload: dict) -> None:
         message = f"event: {event}\ndata: {to_json(payload)}\n\n"
@@ -228,6 +264,11 @@ async def api_today(request: Request) -> Response:
     return Response(to_json(hub.today), media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
+async def api_battery(request: Request) -> Response:
+    await hub.ensure_fresh("battery")
+    return Response(to_json(hub.battery), media_type="application/json", headers={"Cache-Control": "no-store"})
+
+
 async def api_stream(request: Request) -> Response:
     queue: asyncio.Queue = asyncio.Queue(maxsize=8)
 
@@ -280,6 +321,7 @@ routes = [
     Route("/api/config", api_config),
     Route("/api/live", api_live),
     Route("/api/today", api_today),
+    Route("/api/battery", api_battery),
     Route("/api/stream", api_stream),
     Route("/healthz", healthz),
     Route("/manifest.webmanifest", manifest),

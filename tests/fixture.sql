@@ -1,4 +1,4 @@
--- Stand-ins for the four views the app reads, with the same columns as the real ones, so the
+-- Stand-ins for the views the app reads, with the same columns as the real ones, so the
 -- smoke test can run the image against a throwaway Postgres. Values are made up but plausible.
 -- The real views (and the rules behind each number) live with the deployment, not in this repo.
 CREATE ROLE energy_app LOGIN PASSWORD 'smoke' CONNECTION LIMIT 4;
@@ -68,4 +68,52 @@ SELECT now() - interval '10 minutes' AS fetched_at,
        3.5::double precision AS tomorrow_kwh, 24::bigint AS tomorrow_hours
 FROM smoke_mode WHERE NOT empty;
 
-GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast TO energy_app;
+-- Batterij screen. A made-up day: discharging to 30 % by 07:00, charging to 100 % by 13:00, full
+-- until 17:00, then discharging; the lower limit goes from 5 to 10 % at 00:40.
+CREATE VIEW app_battery_soc_today AS
+SELECT t AS time,
+       CASE WHEN h < 7 THEN 60 - 30 * h / 7 WHEN h < 13 THEN 30 + 70 * (h - 7) / 6
+            WHEN h < 17 THEN 100 ELSE 100 - 15 * (h - 17) / 3 END::double precision AS soc,
+       100.0::double precision AS charge_limit_soc,
+       CASE WHEN h < 0.67 THEN 5.0 ELSE 10.0 END::double precision AS discharge_limit_soc
+FROM smoke_mode,
+     generate_series(date_trunc('day', now()), date_trunc('day', now()) + interval '20 hours', interval '5 minutes') AS t,
+     LATERAL (SELECT extract(epoch FROM t - date_trunc('day', now())) / 3600 AS h) AS hh
+WHERE NOT empty;
+
+-- Like the real view, one row even when there are no measurements (then all NULL).
+CREATE VIEW app_battery_summary AS
+SELECT CASE WHEN empty THEN NULL ELSE now() - interval '3 seconds' END AS battery_time,
+       CASE WHEN empty THEN NULL ELSE 10.5 END::double precision AS charged_total_kwh,
+       CASE WHEN empty THEN NULL ELSE 9.0 END::double precision AS discharged_total_kwh,
+       CASE WHEN empty THEN NULL ELSE 7.1 END::double precision AS rated_kwh,
+       CASE WHEN empty THEN NULL ELSE 1.48 END::double precision AS full_cycles,
+       CASE WHEN empty THEN NULL ELSE 100.0 END::double precision AS soh,
+       CASE WHEN empty THEN NULL ELSE 24.0 END::double precision AS temp_c,
+       CASE WHEN empty THEN NULL ELSE 22.0 END::double precision AS temp_min_c,
+       CASE WHEN empty THEN NULL ELSE 29.0 END::double precision AS temp_max_c,
+       CASE WHEN empty THEN NULL ELSE 30.0 END::double precision AS min_soc,
+       CASE WHEN empty THEN NULL ELSE 100.0 END::double precision AS max_soc,
+       CASE WHEN empty THEN NULL ELSE 0.933 END::double precision AS cell_efficiency_30d,
+       CASE WHEN empty THEN NULL ELSE 9.2 END::double precision AS charged_30d_kwh,
+       CASE WHEN empty THEN NULL ELSE now() - interval '3 days' END AS efficiency_since,
+       CASE WHEN empty THEN NULL ELSE now() - interval '3 days' END AS first_reading
+FROM smoke_mode;
+
+-- Nine power bands, like the real view; a path without enough readings is NULL.
+CREATE VIEW app_battery_efficiency AS
+SELECT b.band, b.label,
+       CASE WHEN NOT m.empty THEN b.solar END::double precision AS solar,
+       CASE WHEN NOT m.empty THEN b.battery END::double precision AS battery,
+       CASE WHEN NOT m.empty THEN b.socket END::double precision AS socket,
+       NULL::double precision AS direct
+FROM smoke_mode m,
+     (VALUES (0, '< 250 W', NULL, 0.771, NULL), (1, '250–500 W', 0.715, 0.842, NULL),
+             (2, '500–750 W', 0.834, NULL, NULL), (3, '750 W – 1 kW', 0.873, NULL, 0.909),
+             (4, '1 – 1,5 kW', 0.904, NULL, NULL), (5, '1,5 – 2 kW', 0.936, NULL, NULL),
+             (6, '2 – 2,5 kW', NULL, NULL, NULL), (7, '2,5 – 3 kW', NULL, NULL, NULL),
+             (8, '> 3 kW', NULL, NULL, NULL)) AS b(band, label, solar, battery, socket)
+ORDER BY b.band;
+
+GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
+                app_battery_soc_today, app_battery_summary, app_battery_efficiency TO energy_app;

@@ -7,7 +7,9 @@ doing now* and *how did today go*. The interface is in Dutch.
 It is built for daily use on a phone, a tablet and a wall screen. Analysis stays in Grafana; every
 card can link to the matching Grafana dashboard.
 
-## What it shows (Thuis)
+## What it shows
+
+### Thuis
 
 - **Nu:** a flow picture of who feeds whom: sun on top, grid left, house right, battery at the
   bottom, one line per pair (`app_live.flow_*_w`), coloured by source (green = solar, red = grid or
@@ -26,6 +28,21 @@ card can link to the matching Grafana dashboard.
   is calculated, the period (live or today), and the source.
 - A wall view at `/?kiosk`: always dark, large numbers, a clock, a small shift every minute against
   burn-in, dimmed at night, and a screen wake lock.
+
+### Batterij
+
+- **Nu:** charge level with the lower limit, the power of the cells (laadt / ontlaadt / rust),
+  energy available above the lower limit, temperature. Live, from the same stream as Thuis.
+- **Geladen en ontladen:** today, since new (the battery's lifetime counters), and the efficiency at
+  the cells over the last 30 days.
+- **Gezondheid:** the battery's own state-of-health figure, its rated capacity, full cycles since new
+  (charged ÷ capacity) and today's temperature range.
+- **Laadniveau vandaag:** the charge level from midnight to now with the two limits as dashed steps.
+- **Rendement per vermogen:** per power band over the last 30 days, which share comes out on the other
+  side for each path (sun → battery + house, battery → house, socket → battery, sun → house).
+
+The screens switch by the address's `#hash` (`#batterij`); the Batterij data is fetched only while
+that screen is open.
 
 ## How it works
 
@@ -48,6 +65,9 @@ card can link to the matching Grafana dashboard.
 | `app_live` | one | newest power values, charge level, limits, source timestamps, plugs (JSON array), outdoor temperature and its time, and who feeds whom for the flow picture: `flow_sun_bat_w`, `flow_sun_house_w`, `flow_sun_grid_w`, `flow_bat_house_w`, `flow_bat_grid_w`, `flow_grid_house_w`, `flow_grid_bat_w` (all ≥ 0; null hides the line) |
 | `app_today` | zero or one | today's totals and money |
 | `app_battery_savings_today` | zero or one | the calculated battery savings and their inputs |
+| `app_battery_soc_today` | 0 – 288 | Batterij screen: `time` (5-minute buckets from local midnight), `soc`, `charge_limit_soc`, `discharge_limit_soc` |
+| `app_battery_summary` | one (all null without data) | lifetime counters, `rated_kwh`, `full_cycles`, `soh`, temperature now and today's range, today's lowest/highest charge level, `cell_efficiency_30d` and its inputs, `first_reading` |
+| `app_battery_efficiency` | nine | per power band (`band`, `label`): out ÷ in for `solar`, `battery`, `socket`, `direct`; null when there are too few readings |
 | `app_forecast` | zero or one | solar forecast: `fetched_at`, `today_kwh`, `rest_today_kwh` (now → midnight), `tomorrow_kwh`, `tomorrow_hours` (24 when tomorrow is complete). Optional: when it is missing or fails, the rest of the screen works and the card shows “—” |
 
 `tests/fixture.sql` has stand-ins with exactly the columns the app reads. The real definitions belong
@@ -64,6 +84,7 @@ All settings come from the environment. None of them is secret except the databa
 | `DB_POOL_SIZE` | `2` | maximum database connections |
 | `LIVE_INTERVAL` | `5` | seconds between live reads |
 | `TODAY_INTERVAL` | `60` | seconds between reads of the day views |
+| `BATTERY_INTERVAL` | `60` | the Batterij screen's data is re-read at most this often (only while a screen asks for it) |
 | `PLUG_LABELS` | (empty) | display names, `source=Label,...`; also the plugs the status sheet expects |
 | `LINK_DAY`, `LINK_PERIOD`, `LINK_MONEY`, `LINK_BATTERY`, `LINK_PLUGS`, `LINK_TECH` | (empty) | Grafana links per card and tab; a missing link hides it |
 | `FORECAST_PLANES`, `FORECAST_LOCATION`, `FORECAST_ACCURACY` | (empty) | extra lines on the forecast's info sheet: the roof planes, the location sent to the forecast service, how accurate it was when tested; each is left out when unset |
@@ -98,7 +119,8 @@ CREATE ROLE energy_app LOGIN CONNECTION LIMIT 4;
 ALTER ROLE energy_app SET default_transaction_read_only = on;
 ALTER ROLE energy_app SET statement_timeout = '5s';
 GRANT USAGE ON SCHEMA public TO energy_app;
-GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast TO energy_app;
+GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
+                app_battery_soc_today, app_battery_summary, app_battery_efficiency TO energy_app;
 -- then set its password by hand, not in a file you commit
 ```
 
@@ -109,6 +131,7 @@ GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast TO 
 | `/` | the page |
 | `/api/stream` | Server-Sent Events: `live` and `today` events, a comment line every 15 s |
 | `/api/live`, `/api/today` | the same data as JSON (re-read at most every few seconds) |
+| `/api/battery` | the Batterij screen: today's charge level, the summary row, efficiency per band, the day's start and end (re-read at most every `BATTERY_INTERVAL` seconds) |
 | `/api/config` | links, plug labels, intervals, time zone |
 | `/healthz` | 200 when the database answers, 503 otherwise (used by the image's `HEALTHCHECK`) |
 
