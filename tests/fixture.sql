@@ -29,7 +29,9 @@ SELECT now() AS db_now,
        CASE WHEN m.empty THEN NULL ELSE now() - interval '2 seconds' END AS battery_last_time,
        CASE WHEN m.empty THEN NULL ELSE now() - interval '3 minutes' END AS gas_time,
        CASE WHEN m.empty THEN '[]'::json
-            ELSE '[{"name":"tv","w":114,"time":"2026-01-01T12:00:00+00:00"},{"name":"router","w":42,"time":"2026-01-01T12:00:00+00:00"}]'::json END AS plugs
+            ELSE '[{"name":"tv","w":114,"time":"2026-01-01T12:00:00+00:00"},{"name":"router","w":42,"time":"2026-01-01T12:00:00+00:00"}]'::json END AS plugs,
+       CASE WHEN m.empty THEN NULL ELSE date_trunc('hour', now()) END AS outdoor_time,
+       CASE WHEN m.empty THEN NULL ELSE 8.0 END::double precision AS outdoor_c
 FROM smoke_mode m;
 
 CREATE VIEW app_today AS

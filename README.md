@@ -10,7 +10,8 @@ card can link to the matching Grafana dashboard.
 ## What it shows (Thuis)
 
 - **Nu:** a flow picture whose lines follow the real wiring, so each one is a measurement: panels →
-  battery unit, battery unit → house (AC output), grid ↔ house. Plus gas today and the smart plugs.
+  battery unit, battery unit → house (AC output), grid ↔ house. Plus gas today, the outdoor
+  temperature (with the time of the reading) and the smart plugs.
 - **Vandaag:** generated, house use, self-sufficiency, imported and exported, 00:00 – now.
 - **Geld vandaag:** the energy bill so far, and an estimate of what the battery saved today under the
   2027 rules (no net metering), clearly marked as calculated.
@@ -39,7 +40,7 @@ card can link to the matching Grafana dashboard.
 
 | View | Rows | Used for |
 |---|---|---|
-| `app_live` | one | newest power values, charge level, limits, source timestamps, plugs (JSON array) |
+| `app_live` | one | newest power values, charge level, limits, source timestamps, plugs (JSON array), outdoor temperature and its time |
 | `app_today` | zero or one | today's totals and money |
 | `app_battery_savings_today` | zero or one | the calculated battery savings and their inputs |
 

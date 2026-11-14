@@ -52,6 +52,7 @@ echo "ok   icon"
 check "config"     /api/config '"tv":"TV"'
 check "live"       /api/live '"solar_w":1410.0'
 check "live ok"    /api/live '"ok":true'
+check "outdoor"    /api/live '"outdoor_c":8.0'
 check "today"      /api/today '"net_eur":2.47'
 check "savings"    /api/today '"savings_eur":0.4'
 

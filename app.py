@@ -78,7 +78,7 @@ def client_config() -> dict:
         "liveInterval": LIVE_INTERVAL,
         "todayInterval": TODAY_INTERVAL,
         # Ages after which a source counts as stale on the status sheet, in seconds.
-        "staleAfter": {"p1": 60, "battery": 60, "gas": 1200, "plug": 900},
+        "staleAfter": {"p1": 60, "battery": 60, "gas": 1200, "plug": 900, "outdoor": 10800},
     }
 
 

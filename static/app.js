@@ -69,6 +69,10 @@ function flowSvg() {
       <text x="14" y="22" font-size="11.5" fill="var(--muted)">Gas vandaag</text>
       <text data-t="gas" x="14" y="41" class="big" font-size="15" fill="var(--gas)">—</text>
     </g>
+    <g class="node" data-sheet="buiten" tabindex="0" role="button" aria-label="Buitentemperatuur">
+      <text data-t="buiten-l" x="326" y="22" font-size="11.5" fill="var(--muted)" text-anchor="end">Buiten</text>
+      <text data-t="buiten" x="326" y="41" class="big" font-size="15" fill="var(--fg)" text-anchor="end">—</text>
+    </g>
   </svg>`;
 }
 
@@ -119,6 +123,9 @@ function renderFlow(svg, d, today) {
     box.setAttribute("stroke", "var(--ref)"); label.setAttribute("fill", "var(--muted)"); label.textContent = isNum(g) ? "Net · 0 W" : "Net · —";
   }
   t("gas", today && isNum(today.gas_m3) ? `${fmt[2].format(today.gas_m3)} m³` : "—");
+  const oc = d ? d.outdoor_c : null;
+  t("buiten", isNum(oc) ? `${fmt[1].format(oc)} °C` : "—");
+  t("buiten-l", d && d.outdoor_time ? `Buiten ${hm(d.outdoor_time)}` : "Buiten");
 }
 
 // ---------- rendering ----------
@@ -202,6 +209,7 @@ function sources() {
     { name: "Thuisbatterij", age: secondsBetween(now, d.battery_last_time), limit: st.battery ?? 60 },
     { name: "Gasmeter", age: secondsBetween(now, d.gas_time), limit: st.gas ?? 1200 },
   ];
+  out.push({ name: "Buitentemperatuur", age: secondsBetween(now, d.outdoor_time), limit: st.outdoor ?? 10800 });
   out.forEach((s) => { s.ok = isNum(s.age) && s.age <= s.limit; s.text = ago(s.age); });
   out.push({ name: "Stekkers", ok: plugTotal > 0 && plugCount === plugTotal, text: plugTotal ? `${plugCount} van ${plugTotal} meldden zich in 15 min` : "geen stekkers gezien" });
   return out;
@@ -302,6 +310,15 @@ const SHEETS = {
       ["Periode", TODAY_PERIOD + "; de gasmeter meldt zich om de 5 minuten"],
       ["Bron", "gasmeter via de slimme meter"],
     ]) + link("period", "Gas in Grafana") };
+  },
+  buiten() {
+    const d = state.live?.data;
+    return { title: `Buiten · ${d && isNum(d.outdoor_c) ? fmt[1].format(d.outdoor_c) + " °C" : "—"}`, body: rows([
+      ["Wat", "De buitentemperatuur van het weerstation in de buurt."],
+      ["Periode", d?.outdoor_time ? `meting van ${hm(d.outdoor_time)}; er komt één per uur` : "geen meting in de laatste 3 uur, daarom “—”"],
+      ["Bron", "Buienradar, via DSMR-reader (die haalt hem elk uur op)"],
+      ["Waarom niet de sensor bij de voordeur", "die hangt tegen het huis en wordt in de zon veel te warm"],
+    ]) };
   },
   plugs() {
     const d = state.live?.data;
