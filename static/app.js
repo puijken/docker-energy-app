@@ -99,8 +99,7 @@ function flowSvg() {
     ${flowNode("bat", "batterij", "Batterij", 180, 262, "var(--bat)", [["bat-k", -10, 10.5], ["bat", 11, 20, "big"], ["bat-state", 27, 10.5]])}
     ${flowCorner("gas", "gas", "Gas vandaag", 30, 30, "var(--gas)")}
     <g class="node" data-sheet="buiten" tabindex="0" role="button" aria-label="Buitentemperatuur">
-      <text data-t="buiten-l" x="352" y="20" font-size="11.5" fill="var(--muted)" text-anchor="end">Buiten</text>
-      <text data-t="buiten" x="352" y="40" class="big" font-size="16" fill="var(--fg)" text-anchor="end">—</text>
+      <text data-t="buiten" x="352" y="36" class="big" font-size="16" fill="var(--fg)" text-anchor="end">—</text>
     </g>
   </svg>`;
 }
@@ -173,7 +172,6 @@ function renderFlow(svg, d, today) {
   t("gas-l", "vandaag");
   const oc = d ? d.outdoor_c : null;
   t("buiten", isNum(oc) ? `${fmt[1].format(oc)} °C` : "—");
-  t("buiten-l", d && d.outdoor_time ? `Buiten ${hm(d.outdoor_time)}` : "Buiten");
 }
 
 // ---------- rendering ----------
