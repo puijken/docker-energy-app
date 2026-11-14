@@ -208,7 +208,7 @@ function renderLive() {
   const plugs = $("#plugs");
   const list = d?.plugs || [];
   plugs.innerHTML = list.length
-    ? list.map((p) => `<button type="button" data-sheet="plugs">${plugIcon(p.name)}<span><small>${esc(plugLabel(p.name))}</small><b>${power(p.w)}</b></span></button>`).join("")
+    ? list.map((p) => `<button type="button" data-sheet="plugs">${plugIcon(p.name)}<span>${esc(plugLabel(p.name))}</span><b>${plain(power(p.w))}</b></button>`).join("")
     : '<p class="empty">Geen stekker meldde zich in de laatste 15 minuten.</p>';
   const sum = list.reduce((a, p) => a + (isNum(p.w) ? p.w : 0), 0);
   $("#plugs-sum").textContent = list.length ? `live · samen ${plain(power(sum))}` : "live";

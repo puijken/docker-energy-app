@@ -14,7 +14,7 @@ card can link to the matching Grafana dashboard.
   battery), with idle routes as faint grey dashes. Each circle holds an icon, the live value and,
   where it applies, today's kWh. Gas today sits top left, the outdoor temperature top right (the time of the reading
   is in its detail sheet).
-- **Stekkers:** one tile per smart plug with its live power, and their sum.
+- **Stekkers:** one chip per smart plug with its live power, and their sum.
 - **Vandaag:** generated with the share used yourself (not exported: used directly or stored),
   house use, self-sufficiency, imported and exported, 00:00 – now.
 - **Geld vandaag:** the energy bill so far, and an estimate of what the battery saved today under the
