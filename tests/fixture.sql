@@ -32,7 +32,14 @@ SELECT now() AS db_now,
             ELSE '[{"name":"tv","w":114,"time":"2026-01-01T12:00:00+00:00"},{"name":"router","w":42,"time":"2026-01-01T12:00:00+00:00"}]'::json END AS plugs,
        CASE WHEN m.empty THEN NULL ELSE date_trunc('hour', now()) END AS outdoor_time,
        CASE WHEN m.empty THEN NULL ELSE 8.0 END::double precision AS outdoor_c,
-       CASE WHEN m.empty THEN NULL ELSE 24.0 END::double precision AS battery_temp_c
+       CASE WHEN m.empty THEN NULL ELSE 24.0 END::double precision AS battery_temp_c,
+       CASE WHEN m.empty THEN NULL ELSE 1170.0 END::double precision AS flow_sun_bat_w,
+       CASE WHEN m.empty THEN NULL ELSE 240.0 END::double precision AS flow_sun_house_w,
+       CASE WHEN m.empty THEN NULL ELSE 0.0 END::double precision AS flow_sun_grid_w,
+       CASE WHEN m.empty THEN NULL ELSE 0.0 END::double precision AS flow_bat_house_w,
+       CASE WHEN m.empty THEN NULL ELSE 0.0 END::double precision AS flow_bat_grid_w,
+       CASE WHEN m.empty THEN NULL ELSE 150.0 END::double precision AS flow_grid_house_w,
+       CASE WHEN m.empty THEN NULL ELSE 0.0 END::double precision AS flow_grid_bat_w
 FROM smoke_mode m;
 
 CREATE VIEW app_today AS

@@ -35,37 +35,48 @@ function ago(seconds) {
 const state = { config: { links: {}, plugLabels: {}, liveInterval: 5, staleAfter: {} }, live: null, today: null, liveAt: 0, cached: false, auth: "ok" };
 const wallMode = new URLSearchParams(location.search).has("kiosk");
 
-// ---------- flow picture: one line per measured connection (real wiring) ----------
-function flowSvg() {
-  return `
-  <svg viewBox="0 0 340 282" aria-label="Stroomschema: waar de stroom nu vandaan komt en heen gaat">
-    <path class="line off" data-line="zon" d="M152 68 L101 137" stroke="var(--zon)"/>
-    <path class="line off" data-line="bat" d="M117 168 L223 168" stroke="var(--bat)"/>
-    <path class="line off" data-line="net" d="M262 244 L262 207" stroke="var(--uit)"/>
-    <text data-t="zon-line" x="114" y="98" font-size="12.5" fill="var(--muted)" text-anchor="end"></text>
-    <text data-t="bat-line" x="170" y="158" font-size="12.5" fill="var(--muted)" text-anchor="middle"></text>
-    <text data-t="net-line" x="274" y="229" font-size="12.5" fill="var(--muted)"></text>
+// ---------- flow picture: who feeds whom (app_live.flow_*_w, derived in SQL from measurements) ----------
+// Sun on top, house in the middle, battery and grid at the bottom: every pair has its own line and
+// none cross. Green = solar going somewhere; red = drawn from the grid or from the battery.
+const FLOW_LINES = [
+  // name, path (source -> target), label x, y, anchor
+  ["sun-bat", "M154.9 73.1 L81 205.9", 106, 133, "end"],
+  ["sun-house", "M170 77 L170 123", 170, 104, "middle"],
+  ["sun-grid", "M185.1 73.1 L259 205.9", 234, 133, "start"],
+  ["bat-house", "M93.3 216.8 L140.3 182", 124, 214, "middle"],
+  ["grid-house", "M246.7 216.8 L199.7 182", 216, 214, "middle"],
+  ["bat-grid", "M101 240 L239 240", 170, 233, "middle"],
+];
 
+function flowSvg() {
+  const lines = FLOW_LINES.map(([n, d]) => `<path class="line off" data-line="${n}" d="${d}" stroke="var(--eigen)"/>`).join("");
+  const labels = FLOW_LINES.map(([n, , x, y, anchor]) => `<text data-t="${n}-line" x="${x}" y="${y}" font-size="12.5" fill="var(--muted)" text-anchor="${anchor}" stroke="var(--card)" stroke-width="5" stroke-linejoin="round" paint-order="stroke"></text>`).join("");
+  return `
+  <svg viewBox="0 0 340 302" aria-label="Stroomschema: waar de stroom nu vandaan komt en heen gaat">
+    ${lines}
+    ${labels}
     <g class="node" data-sheet="zon" tabindex="0" role="button" aria-label="Zon">
-      <circle cx="170" cy="42" r="31" fill="var(--card)" stroke="var(--zon)" stroke-width="3"/>
-      <text data-t="zon" x="170" y="43" text-anchor="middle" class="big" font-size="16" fill="var(--fg)">—</text>
-      <text data-t="zon-u" x="170" y="58" text-anchor="middle" font-size="10.5" fill="var(--muted)">zon</text>
-    </g>
-    <g class="node" data-sheet="batterij" tabindex="0" role="button" aria-label="Batterij">
-      <circle cx="78" cy="168" r="39" fill="var(--card)" stroke="var(--bat)" stroke-width="3"/>
-      <text data-t="soc" x="78" y="163" text-anchor="middle" class="big" font-size="19" fill="var(--fg)">—</text>
-      <text data-t="bat-state" x="78" y="178" text-anchor="middle" font-size="10.5" fill="var(--muted)"></text>
-      <text data-t="bat-temp" x="78" y="193" text-anchor="middle" font-size="10" fill="var(--muted)"></text>
-      <text data-t="bat-label" x="78" y="225" text-anchor="middle" font-size="11.5" fill="var(--muted)">Batterij</text>
+      <circle cx="170" cy="46" r="31" fill="var(--card)" stroke="var(--zon)" stroke-width="3"/>
+      <text data-t="zon" x="170" y="47" text-anchor="middle" class="big" font-size="16" fill="var(--fg)">—</text>
+      <text data-t="zon-u" x="170" y="62" text-anchor="middle" font-size="10.5" fill="var(--muted)">zon</text>
     </g>
     <g class="node" data-sheet="huis" tabindex="0" role="button" aria-label="Huis">
-      <circle cx="262" cy="168" r="39" fill="var(--card)" stroke="var(--huis)" stroke-width="3"/>
-      <text data-t="huis" x="262" y="167" text-anchor="middle" class="big" font-size="19" fill="var(--fg)">—</text>
-      <text data-t="huis-u" x="262" y="183" text-anchor="middle" font-size="10.5" fill="var(--muted)">huis</text>
+      <circle cx="170" cy="160" r="37" fill="var(--card)" stroke="var(--huis)" stroke-width="3"/>
+      <text data-t="huis" x="170" y="160" text-anchor="middle" class="big" font-size="19" fill="var(--fg)">—</text>
+      <text data-t="huis-u" x="170" y="176" text-anchor="middle" font-size="10.5" fill="var(--muted)">huis</text>
+    </g>
+    <g class="node" data-sheet="batterij" tabindex="0" role="button" aria-label="Batterij">
+      <circle cx="62" cy="240" r="39" fill="var(--card)" stroke="var(--bat)" stroke-width="3"/>
+      <text data-t="soc" x="62" y="235" text-anchor="middle" class="big" font-size="19" fill="var(--fg)">—</text>
+      <text data-t="bat-state" x="62" y="250" text-anchor="middle" font-size="10.5" fill="var(--muted)"></text>
+      <text data-t="bat-temp" x="62" y="265" text-anchor="middle" font-size="10" fill="var(--muted)"></text>
+      <text data-t="bat-label" x="62" y="296" text-anchor="middle" font-size="11.5" fill="var(--muted)">Batterij</text>
     </g>
     <g class="node" data-sheet="netnu" tabindex="0" role="button" aria-label="Net">
-      <rect data-t="net-box" x="216" y="245" width="92" height="22" rx="11" fill="var(--card)" stroke="var(--ref)"/>
-      <text data-t="net" x="262" y="260" text-anchor="middle" font-size="11.5" font-weight="650" fill="var(--muted)">Net</text>
+      <circle data-t="net-ring" cx="278" cy="240" r="39" fill="var(--card)" stroke="var(--ref)" stroke-width="3"/>
+      <text data-t="net" x="278" y="239" text-anchor="middle" class="big" font-size="19" fill="var(--fg)">—</text>
+      <text data-t="net-u" x="278" y="255" text-anchor="middle" font-size="10.5" fill="var(--muted)">net</text>
+      <text data-t="net-label" x="278" y="296" text-anchor="middle" font-size="11.5" fill="var(--muted)">Net</text>
     </g>
     <g class="node" data-sheet="gas" tabindex="0" role="button" aria-label="Gas vandaag">
       <text x="14" y="22" font-size="11.5" fill="var(--muted)">Gas vandaag</text>
@@ -88,20 +99,19 @@ function setLine(svg, name, watts, reverse, color) {
   $(`[data-t="${name}-line"]`, svg).textContent = on ? plain(power(Math.abs(watts))) : "";
 }
 
+// Value in a circle: W below 1000, kW above, unit underneath.
+function circleValue(t, key, w, what) {
+  if (!isNum(w)) { t(key, "—"); t(`${key}-u`, what); return; }
+  const a = Math.abs(w);
+  t(key, a < 1000 ? fmt[0].format(a) : fmt[2].format(a / 1000));
+  t(`${key}-u`, `${a < 1000 ? "W" : "kW"} ${what}`);
+}
+
 function renderFlow(svg, d, today) {
   const t = (k, v) => { const el = $(`[data-t="${k}"]`, svg); if (el) el.textContent = v; };
   const has = d && d.flow_time;
-  // Zon: kW without unit in the circle, unit underneath
-  if (has && isNum(d.solar_w)) {
-    const a = Math.abs(d.solar_w);
-    t("zon", a < 1000 ? fmt[0].format(d.solar_w) : fmt[2].format(d.solar_w / 1000));
-    t("zon-u", a < 1000 ? "W zon" : "kW zon");
-  } else { t("zon", "—"); t("zon-u", "zon"); }
-  if (has && isNum(d.house_w)) {
-    const a = Math.abs(d.house_w);
-    t("huis", a < 1000 ? fmt[0].format(d.house_w) : fmt[2].format(d.house_w / 1000));
-    t("huis-u", a < 1000 ? "W huis" : "kW huis");
-  } else { t("huis", "—"); t("huis-u", "huis"); }
+  circleValue(t, "zon", has ? d.solar_w : null, "zon");
+  circleValue(t, "huis", has ? d.house_w : null, "huis");
   t("soc", d && isNum(d.soc) ? `${fmt[0].format(d.soc)}%` : "—");
   const cw = d ? d.battery_cells_w : null;
   t("bat-state", !d || !isNum(cw) ? "" : cw > 10 ? "ontlaadt" : cw < -10 ? "laadt" : "rust");
@@ -110,22 +120,31 @@ function renderFlow(svg, d, today) {
   t("bat-temp", d && isNum(d.battery_temp_c) ? `${fmt[0].format(d.battery_temp_c)} °C` : "");
   t("bat-label", !d || !isNum(cw) || Math.abs(cw) <= 10 ? "Batterij" : `Batterij · ${plain(power(Math.abs(cw)))}`);
 
-  setLine(svg, "zon", has ? d.solar_w : null, false);
-  if (has && d.battery_ac_w >= 10) setLine(svg, "bat", d.battery_ac_w, false, "var(--uit)");
-  else if (has && d.socket_in_w >= 10) setLine(svg, "bat", d.socket_in_w, true, "var(--eigen)");
-  else setLine(svg, "bat", null);
+  const f = (k) => (has ? d[`flow_${k}_w`] : null);
+  const GREEN = "var(--eigen)", RED = "var(--uit)";
+  setLine(svg, "sun-bat", f("sun_bat"), false, GREEN);
+  setLine(svg, "sun-house", f("sun_house"), false, GREEN);
+  setLine(svg, "sun-grid", f("sun_grid"), false, GREEN);
+  setLine(svg, "bat-house", f("bat_house"), false, RED);
+  setLine(svg, "grid-house", f("grid_house"), false, RED);
+  // One line between battery and grid: battery -> grid (export from the cells, rare) or the battery
+  // charging from the socket (grid -> battery), whichever is larger.
+  const bg = f("bat_grid") ?? 0, gb = f("grid_bat") ?? 0;
+  if (gb >= 10 && gb >= bg) setLine(svg, "bat-grid", gb, true, RED);
+  else setLine(svg, "bat-grid", bg, false, RED);
 
   const g = has ? d.grid_w : null;
-  const box = $('[data-t="net-box"]', svg), label = $('[data-t="net"]', svg);
+  const ring = $('[data-t="net-ring"]', svg), unitEl = $('[data-t="net-u"]', svg);
+  circleValue(t, "net", isNum(g) && Math.abs(g) >= 10 ? g : isNum(g) ? 0 : null, "");
   if (isNum(g) && g >= 10) {
-    setLine(svg, "net", g, false, "var(--uit)");
-    box.setAttribute("stroke", "var(--uit)"); label.setAttribute("fill", "var(--uit)"); label.textContent = "Net · afname";
+    ring.setAttribute("stroke", RED); unitEl.setAttribute("fill", RED);
+    t("net-u", `${Math.abs(g) < 1000 ? "W" : "kW"} afname`);
   } else if (isNum(g) && g <= -10) {
-    setLine(svg, "net", g, true, "var(--eigen)");
-    box.setAttribute("stroke", "var(--eigen)"); label.setAttribute("fill", "var(--eigen)"); label.textContent = "Net · terug";
+    ring.setAttribute("stroke", GREEN); unitEl.setAttribute("fill", GREEN);
+    t("net-u", `${Math.abs(g) < 1000 ? "W" : "kW"} terug`);
   } else {
-    setLine(svg, "net", null);
-    box.setAttribute("stroke", "var(--ref)"); label.setAttribute("fill", "var(--muted)"); label.textContent = isNum(g) ? "Net · 0 W" : "Net · —";
+    ring.setAttribute("stroke", "var(--ref)"); unitEl.setAttribute("fill", "var(--muted)");
+    t("net-u", isNum(g) ? "W net" : "net");
   }
   t("gas", today && isNum(today.gas_m3) ? `${fmt[2].format(today.gas_m3)} m³` : "—");
   const oc = d ? d.outdoor_c : null;
@@ -311,7 +330,9 @@ const SHEETS = {
   zon() {
     const d = state.live?.data;
     return { title: `Zon · ${plain(power(d?.solar_w))}`, body: rows([
-      ["Wat", "Wat de zonnepanelen nu leveren. Ze hangen direct aan de thuisbatterij, dus deze stroom gaat altijd eerst de batterij in; de batterij levert daarna aan het huis."],
+      ["Wat", "Wat de zonnepanelen nu leveren, en waar het heen gaat: de batterij in, naar het huis of naar het net (groene lijnen)."],
+      ["Nu", d?.flow_time ? `batterij ${plain(power(d.flow_sun_bat_w))} · huis ${plain(power(d.flow_sun_house_w))} · net ${plain(power(d.flow_sun_grid_w))}` : "—"],
+      ["Hoe verdeeld", "De panelen hangen aan de thuisbatterij, dus alle zonnestroom gaat door het apparaat. Gemeten: wat de cellen laden, wat het apparaat aan het huis levert en wat de slimme meter terug ziet gaan. Daaruit volgt elke lijn. Alleen als zon en batterij tegelijk aan het huis leveren (rond zonsopgang en -ondergang) is de verdeling geschat, naar verhouding. Samen iets minder dan de zon zelf: ongeveer 3 % gaat verloren bij het omzetten."],
       ["Periode", LIVE_PERIOD()],
       ["Bron", "thuisbatterij (PV-vermogen)"],
     ]) + link("day", "Zon vandaag in Grafana") };
@@ -319,7 +340,7 @@ const SHEETS = {
   batterij() {
     const d = state.live?.data;
     return { title: `Batterij · ${isNum(d?.soc) ? fmt[0].format(d.soc) + "%" : "—"}`, body: rows([
-      ["Wat", "Laadniveau en wat de cellen nu doen: laden (groen; uit zon of het stopcontact) of ontladen (rood). De lijn naar het huis is wat de batterij aan het huis levert (AC-uitgang): rood; groen als hij uit het stopcontact laadt."],
+      ["Wat", "Laadniveau en wat de cellen nu doen: laden (groen; uit zon of het stopcontact) of ontladen (rood). Rode lijn naar het huis: de batterij levert uit de cellen. Rode lijn van het net: de batterij laadt uit het stopcontact."],
       ["Nu", d ? `cellen ${plain(power(d.battery_cells_w))} (boven nul ontladen) · naar het huis ${plain(power(d.battery_ac_w))}${d.socket_in_w >= 10 ? ` · uit het stopcontact ${plain(power(d.socket_in_w))}` : ""}` : "—"],
       ["Waarom verschil", "Tussen cellen en huis gaat stroom verloren bij het omzetten, en de batterij gebruikt zelf wat (stand-byverbruik)."],
       ["Temperatuur", d && isNum(d.battery_temp_c) ? `${fmt[1].format(d.battery_temp_c)} °C: de temperatuur die de batterij zelf meldt, dezelfde als in de Anker-app (welke sensor precies is niet bekend)` : "—"],
@@ -343,7 +364,7 @@ const SHEETS = {
     const g = d?.grid_w;
     const what = !isNum(g) ? "—" : g >= 10 ? `afname ${plain(power(g))}` : g <= -10 ? `teruglevering ${plain(power(-g))}` : "bijna niets";
     return { title: `Net · ${what}`, body: rows([
-      ["Wat", "Stroom van of naar het net. Rood: je neemt af. Groen: je levert terug."],
+      ["Wat", "Stroom van of naar het net. Rood: je neemt af (lijn naar het huis, of naar de batterij als die uit het stopcontact laadt). Groen: je levert zonnestroom terug."],
       ["Periode", LIVE_PERIOD()],
       ["Bron", "slimme meter (P1)"],
     ]) + link("day", "Net vandaag in Grafana") };

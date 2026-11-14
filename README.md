@@ -42,7 +42,7 @@ card can link to the matching Grafana dashboard.
 
 | View | Rows | Used for |
 |---|---|---|
-| `app_live` | one | newest power values, charge level, limits, source timestamps, plugs (JSON array), outdoor temperature and its time |
+| `app_live` | one | newest power values, charge level, limits, source timestamps, plugs (JSON array), outdoor temperature and its time, and who feeds whom for the flow picture: `flow_sun_bat_w`, `flow_sun_house_w`, `flow_sun_grid_w`, `flow_bat_house_w`, `flow_bat_grid_w`, `flow_grid_house_w`, `flow_grid_bat_w` (all ≥ 0; null hides the line) |
 | `app_today` | zero or one | today's totals and money |
 | `app_battery_savings_today` | zero or one | the calculated battery savings and their inputs |
 | `app_forecast` | zero or one | solar forecast: `fetched_at`, `today_kwh`, `rest_today_kwh` (now → midnight), `tomorrow_kwh`, `tomorrow_hours` (24 when tomorrow is complete). Optional: when it is missing or fails, the rest of the screen works and the card shows “—” |
