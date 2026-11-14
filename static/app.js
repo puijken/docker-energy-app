@@ -415,8 +415,8 @@ const SHEETS = {
     const d = state.live?.data;
     return { title: `Buiten · ${d && isNum(d.outdoor_c) ? fmt[1].format(d.outdoor_c) + " °C" : "—"}`, body: rows([
       ["Wat", "De buitentemperatuur van het weerstation in de buurt."],
-      ["Periode", d?.outdoor_time ? `meting van ${hm(d.outdoor_time)}; er komt één per uur` : "geen meting in de laatste 3 uur, daarom “—”"],
-      ["Bron", "Buienradar, via DSMR-reader (die haalt hem elk uur op)"],
+      ["Periode", d?.outdoor_time ? `meting van ${hm(d.outdoor_time)}; er komt er elke 10 minuten een` : "geen meting in de laatste 3 uur, daarom “—”"],
+      ["Bron", "Buienradar, het meetstation (elke 10 minuten opgehaald)"],
       ["Waarom niet de sensor bij de voordeur", "die hangt tegen het huis en wordt in de zon veel te warm"],
     ]) };
   },
@@ -589,8 +589,8 @@ const SHEETS = {
   hnet() { return histSheet("Afgenomen · teruggeleverd", "import_kwh", "kWh", "Stroom van en naar het net.", "standen van de slimme meter, normaal- en daltarief samen", "slimme meter", "export_kwh"); },
   hrekening() { return histSheet("Energierekening", "net_eur", "€", "Wat deze periode kostte volgens je energiecontracten.", "stroomkosten − terugleververgoeding + gaskosten + vaste kosten, met de prijzen van het contract dat toen gold en salderen per afrekenperiode (tot en met 2026). Terugleverkosten tellen nog niet mee.", "meterstanden en de contractprijzen uit DSMR-reader"); },
   hgas() { return histSheet("Gas", "gas_m3", "m³", "Gasverbruik.", "standen van de gasmeter per dag", "gasmeter via de slimme meter"); },
-  hgraad() { return histSheet("Graaddagen", "degree_days", "", "Hoe koud het was: per dag 18 °C min de gemiddelde buitentemperatuur (0 als het warmer was), opgeteld. Twee keer zoveel graaddagen betekent ongeveer twee keer zoveel stookweer.", "per dag max(18 − daggemiddelde, 0); een dag telt alleen mee met minstens 18 uurmetingen. Gewone graaddagen, niet de gewogen variant.", "Buienradar via DSMR-reader (uurlijks, sinds 4-3-2022)"); },
-  hgpg() { return histSheet("Gas per graaddag", "gas_per_degree_day", "m³", "Gas gedeeld door graaddagen: zo zie je of je zuiniger stookt, los van of het een koude of zachte periode was.", "gas op dagen met een graaddagwaarde ÷ graaddagen; pas vanaf 5 graaddagen (anders “—”). Gas voor warm water telt ook mee, dus in de zomer is dit getal hoog.", "gasmeter en Buienradar"); },
+  hgraad() { return histSheet("Graaddagen", "degree_days", "", "Hoe koud het was, zo gerekend dat het past bij hoeveel dit huis stookt. Twee keer zoveel graaddagen betekent ongeveer twee keer zoveel gas voor verwarming.", "per dag max(17 °C − daggemiddelde buiten, 0) × 1,1 (nov–feb), × 1,0 (mrt, okt) of × 0,8 (apr–sep): gewogen graaddagen op een basis van 17 °C. Waarom 17: over 5½ jaar gasverbruik van dit huis past dit het best (beter dan 18 °C, en beter dan ongewogen); met ongeveer 20,5 °C binnen leveren zon, mensen en apparaten de rest. Mindergas rekent met 20,5 °C binnen en een stookgrens van 18 °C en telt daardoor meer graaddagen (oktober 2026: ≈ 258 tegen 149 hier). KNMI levert de daggemiddelden een of twee dagen later; tot dan staat een dag zonder graaddagen.", "KNMI, het meetstation (gemeten daggemiddelde)"); },
+  hgpg() { return histSheet("Gas per graaddag", "gas_per_degree_day", "m³", "Gas gedeeld door graaddagen: zo zie je of je zuiniger stookt, los van of het een koude of zachte periode was. Een lagere thermostaat of betere isolatie geeft een lager getal.", "gas op dagen met een graaddagwaarde ÷ graaddagen; pas vanaf 5 graaddagen (anders “—”). Gas voor warm water en koken telt ook mee (ongeveer 0,2 m³ per dag), dus in de zomer is dit getal hoog.", "gasmeter en KNMI"); },
   temperatuur() {
     const d = state.live?.data, sm = state.battery?.summary;
     return { title: `Temperatuur batterij · ${d && isNum(d.battery_temp_c) ? fmt[0].format(d.battery_temp_c) + " °C" : "—"}`, body: rows([
