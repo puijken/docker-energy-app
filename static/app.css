@@ -61,7 +61,10 @@ a { color: var(--accent); }
   .side > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
 @media (min-width: 1000px) {
-  .thuis { grid-template-columns: 1.25fr 1fr; align-items: start; }
+  /* both columns end on the same line: the last card of the shorter column grows */
+  .thuis { grid-template-columns: 1.25fr 1fr; align-items: stretch; }
+  .main-col, .side { display: flex; flex-direction: column; }
+  .main-col > :last-child, .side > :last-child { flex-grow: 1; }
   .shell { padding-bottom: 24px; }
 }
 
@@ -113,7 +116,7 @@ a { color: var(--accent); }
 @keyframes run { to { stroke-dashoffset: -14; } }
 @media (prefers-reduced-motion: reduce) { .line { animation: none; stroke-dasharray: none; } }
 
-.main-col { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.main-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .plugs { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 6px; }
 .plugs button {
   display: inline-flex; align-items: center; gap: 5px; cursor: pointer; color: inherit; font: inherit;
