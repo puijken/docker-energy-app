@@ -119,9 +119,9 @@ ORDER BY b.band;
 -- 4 kWh solar and 15 kWh use per day so far this period, last year a bit less of each.
 CREATE FUNCTION app_history(p_unit text, p_anchor date) RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS $f$
 WITH p AS (
-    SELECT u, s, s + CASE u WHEN 'week' THEN interval '1 week' WHEN 'month' THEN interval '1 month' ELSE interval '1 year' END AS e,
+    SELECT u, s, s + CASE u WHEN 'day' THEN interval '1 day' WHEN 'week' THEN interval '1 week' WHEN 'month' THEN interval '1 month' ELSE interval '1 year' END AS e,
            s - CASE u WHEN 'week' THEN interval '52 weeks' ELSE interval '1 year' END AS ls,
-           CASE WHEN u = 'year' THEN 'month' ELSE 'day' END AS b
+           CASE u WHEN 'year' THEN 'month' WHEN 'day' THEN 'hour' ELSE 'day' END AS b
     FROM (SELECT p_unit AS u, date_trunc(p_unit, p_anchor::timestamptz) AS s) x
 ), m AS (SELECT empty FROM smoke_mode)
 SELECT jsonb_build_object(
@@ -129,10 +129,10 @@ SELECT jsonb_build_object(
     'running', now() >= s AND now() < e, 'first_day', CASE WHEN NOT m.empty THEN '2020-10-10'::timestamptz END,
     'buckets', CASE WHEN m.empty THEN '[]'::jsonb ELSE (SELECT jsonb_agg(jsonb_build_object('t', t, 'generated_kwh', 4.0, 'consumption_kwh', 15.0,
                  'import_kwh', 11.0, 'export_kwh', 0.5, 'gas_m3', 3.0, 'net_eur', 6.0, 'degree_days', 9.0) ORDER BY t)
-                 FROM generate_series(s, least(e - interval '1 day', now()), ('1 ' || b)::interval) AS t) END,
+                 FROM generate_series(s, least(e - ('1 ' || b)::interval, now()), ('1 ' || b)::interval) AS t) END,
     'ly_buckets', CASE WHEN m.empty THEN '[]'::jsonb ELSE (SELECT jsonb_agg(jsonb_build_object('t', t, 'generated_kwh', 3.5, 'consumption_kwh', 14.0,
                  'gas_m3', 2.5, 'net_eur', 5.0) ORDER BY t)
-                 FROM generate_series(ls, ls + (e - s) - interval '1 day', ('1 ' || b)::interval) AS t) END,
+                 FROM generate_series(ls, ls + (e - s) - ('1 ' || b)::interval, ('1 ' || b)::interval) AS t) END,
     'totals', CASE WHEN m.empty THEN jsonb_build_object('days', 0) ELSE jsonb_build_object('days', 14, 'generated_kwh', 56.0, 'consumption_kwh', 210.0,
                  'self_used_kwh', 49.0, 'import_kwh', 161.0, 'export_kwh', 7.0, 'gas_m3', 42.0, 'net_eur', 84.0, 'degree_days', 126.0,
                  'self_sufficiency', 0.233, 'self_consumption', 0.875, 'gas_per_degree_day', 0.333) END,

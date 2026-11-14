@@ -689,6 +689,7 @@ function histSheet(title, key, unitName, what, how, source, key2) {
     ["Berekening", how],
     ["Deze periode", `${period}: ${h ? val(T) : "—"}`],
     ["Vorig jaar", `${ly}: ${h ? val(Y) : "—"}`],
+    h?.bucket === "hour" && ["Per uur", "de staafjes per uur komen uit het gemiddelde vermogen per uur; het dagtotaal uit de tellers, dus ze kunnen een paar procent verschillen"],
     ["Bron", source],
   ]) + link("period", "Periode in Grafana") };
 }
@@ -734,7 +735,7 @@ document.addEventListener("keydown", (e) => {
 $("#sheet").addEventListener("click", (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 
 // ---------- Historie screen (/api/history: app_history(unit, date), rules in SQL) ----------
-const HIST_UNITS = { week: "Week", month: "Maand", year: "Jaar" };
+const HIST_UNITS = { day: "Dag", week: "Week", month: "Maand", year: "Jaar" };
 const MONTHS = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
 const DAYS = ["ma", "di", "wo", "do", "vr", "za", "zo"];
 state.hist = { unit: "month", anchor: null, data: null, loading: false };
@@ -756,6 +757,7 @@ function isoWeek(y, m, d) {
 function histLabel(h) {
   const [y, m, d] = ymd(h.start);
   if (h.unit === "year") return String(y);
+  if (h.unit === "day") return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
   if (h.unit === "month") return `${new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString("nl-NL", { month: "long", timeZone: "UTC" })} ${y}`;
   const [ey, em, ed] = ymd(new Date(new Date(h.end).getTime() - 3600000).toISOString()); // the last day
   const range = em === m ? `${d}–${ed} ${MONTHS[m - 1]}` : `${d} ${MONTHS[m - 1]} – ${ed} ${MONTHS[em - 1]}`;
@@ -766,20 +768,24 @@ function histShift(h, step) {
   const [y, m, d] = ymd(h.start);
   if (h.unit === "year") return isoDate(y + step, 1, 1);
   if (h.unit === "month") return isoDate(y, m + step, 1);
+  if (h.unit === "day") return isoDate(y, m, d + step);
   return isoDate(y, m, d + 7 * step);
 }
 
 // Slot index of a bucket: day number within the period, or month number for a year.
 function slotOf(h, t, start) {
   if (h.bucket === "month") return ymd(t)[1] - 1;
+  if (h.bucket === "hour") return Math.round((new Date(t) - new Date(start)) / 3600000);
   return Math.round((new Date(t) - new Date(start)) / 86400000);
 }
 function slotCount(h) {
   if (h.bucket === "month") return 12;
+  if (h.bucket === "hour") return Math.round((new Date(h.end) - new Date(h.start)) / 3600000); // 23 or 25 on a clock change
   return Math.round((new Date(h.end) - new Date(h.start)) / 86400000);
 }
 function slotLabel(h, i) {
   if (h.bucket === "month") return MONTHS[i];
+  if (h.bucket === "hour") return String(i).padStart(2, "0");
   const [y, m, d] = ymd(h.start);
   if (h.unit === "week") return DAYS[i];
   return String(new Date(Date.UTC(y, m - 1, d + i)).getUTCDate());
@@ -803,7 +809,7 @@ function histChart(h, key, color, width, digits) {
   const bw = Math.max(2, Math.min(28, slotW * 0.62));
   let grid = "";
   for (let v = floor; v <= top + 1e-9; v += step) grid += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="g"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="ax">${fmt[Number.isInteger(step) ? 0 : 1].format(v)}</text>`;
-  const every = h.bucket === "month" ? (W < 420 ? 2 : 1) : h.unit === "week" ? 1 : W < 420 ? 7 : 5;
+  const every = h.bucket === "month" ? (W < 420 ? 2 : 1) : h.bucket === "hour" ? (W < 420 ? 6 : 3) : h.unit === "week" ? 1 : W < 420 ? 7 : 5;
   const ticks = Array.from({ length: n }, (_, i) => i).filter((i) => h.unit === "month" ? (i === 0 || (i + 1) % every === 0) : i % every === 0)
     .map((i) => `<text x="${cx(i)}" y="${H - 6}" text-anchor="middle" class="ax">${slotLabel(h, i)}</text>`).join("");
   const bars = now.map((v, i) => isNum(v) && v !== 0 ? `<rect x="${(cx(i) - bw / 2).toFixed(1)}" y="${Math.min(y(v), y(0)).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.abs(y(0) - y(v)).toFixed(1)}" rx="${Math.min(4, bw / 3).toFixed(1)}" fill="${color}"><title>${slotLabel(h, i)}: ${fmt[digits].format(v)}${isNum(ly[i]) ? ` (vorig jaar ${fmt[digits].format(ly[i])})` : ""}</title></rect>` : "").join("");
@@ -834,27 +840,30 @@ function renderHistory() {
   const today = todayIso();
   $("#hist-next").disabled = !h || histShift(h, 1) > today;
   $("#hist-prev").disabled = !h || (h.first_day && new Date(h.start) <= new Date(h.first_day));
-  $("#hist-note").textContent = !h ? "" : h.running ? "tot nu; vorig jaar tot dezelfde dag" : "";
+  $("#hist-note").textContent = !h ? "" : !h.running ? "" : h.unit === "day" ? "vandaag tot nu; vorig jaar de hele dag" : "tot nu; vorig jaar tot dezelfde dag";
   const T = h?.totals || {}, Y = h?.ly_totals || {};
-  const k = (x) => `${fmt[0].format(x)} kWh`, e = (x) => (isNum(x) ? `€ ${fmt[0].format(x)}` : "—"), p = (x) => (isNum(x) ? `${fmt[0].format(x * 100)} %` : "—");
-  setV("h-opgewekt", kwh(T.generated_kwh, 0)); setV("h-opgewekt-ly", vsLastYear(T.generated_kwh, Y.generated_kwh, k));
-  setV("h-verbruik", kwh(T.consumption_kwh, 0)); setV("h-verbruik-ly", vsLastYear(T.consumption_kwh, Y.consumption_kwh, k));
+  const kd = h?.unit === "day" ? 1 : 0, gd = h?.unit === "day" ? 2 : 0; // a single day: decimals
+  const k = (x) => `${fmt[kd].format(x)} kWh`, e = (x) => eur(x, gd), p = (x) => (isNum(x) ? `${fmt[0].format(x * 100)} %` : "—");
+  setV("h-opgewekt", kwh(T.generated_kwh, kd)); setV("h-opgewekt-ly", vsLastYear(T.generated_kwh, Y.generated_kwh, k));
+  setV("h-verbruik", kwh(T.consumption_kwh, kd)); setV("h-verbruik-ly", vsLastYear(T.consumption_kwh, Y.consumption_kwh, k));
   setV("h-zelfv", pct(T.self_sufficiency)); setV("h-zelfv-ly", vsLastYear(T.self_sufficiency, Y.self_sufficiency, p, true));
   setV("h-benut", pct(T.self_consumption)); setV("h-benut-ly", vsLastYear(T.self_consumption, Y.self_consumption, p, true));
-  setV("h-net", isNum(T.import_kwh) ? `${fmt[0].format(T.import_kwh)}<small>· ${fmt[0].format(T.export_kwh)} kWh</small>` : "—");
-  setV("h-net-ly", isNum(Y.import_kwh) ? `vorig jaar ${fmt[0].format(Y.import_kwh)} · ${fmt[0].format(Y.export_kwh)} kWh` : "vorig jaar —");
-  setV("h-rekening", isNum(T.net_eur) ? eur(T.net_eur, 0) : "—"); setV("h-rekening-ly", vsLastYear(T.net_eur, Y.net_eur, e));
-  setV("h-gas", isNum(T.gas_m3) ? unit(fmt[0].format(T.gas_m3), "m³") : "—"); setV("h-gas-ly", vsLastYear(T.gas_m3, Y.gas_m3, (x) => `${fmt[0].format(x)} m³`));
-  setV("h-graad", isNum(T.degree_days) ? fmt[0].format(T.degree_days) : "—"); setV("h-graad-ly", vsLastYear(T.degree_days, Y.degree_days, (x) => fmt[0].format(x)));
+  setV("h-net", isNum(T.import_kwh) ? `${fmt[kd].format(T.import_kwh)}<small>· ${fmt[kd].format(T.export_kwh)} kWh</small>` : "—");
+  setV("h-net-ly", isNum(Y.import_kwh) ? `vorig jaar ${fmt[kd].format(Y.import_kwh)} · ${fmt[kd].format(Y.export_kwh)} kWh` : "vorig jaar —");
+  setV("h-rekening", isNum(T.net_eur) ? eur(T.net_eur, gd) : "—"); setV("h-rekening-ly", vsLastYear(T.net_eur, Y.net_eur, e));
+  setV("h-gas", isNum(T.gas_m3) ? unit(fmt[gd].format(T.gas_m3), "m³") : "—"); setV("h-gas-ly", vsLastYear(T.gas_m3, Y.gas_m3, (x) => `${fmt[gd].format(x)} m³`));
+  setV("h-graad", isNum(T.degree_days) ? fmt[kd].format(T.degree_days) : "—"); setV("h-graad-ly", vsLastYear(T.degree_days, Y.degree_days, (x) => fmt[kd].format(x)));
   setV("h-gpg", isNum(T.gas_per_degree_day) ? unit(fmt[2].format(T.gas_per_degree_day), "m³") : "—");
   setV("h-gpg-ly", vsLastYear(T.gas_per_degree_day, Y.gas_per_degree_day, (x) => `${fmt[2].format(x)} m³`));
-  for (const [sel, key, color, digits] of [["[data-hchart=opgewekt]", "generated_kwh", "var(--zon)", 1], ["[data-hchart=verbruik]", "consumption_kwh", "var(--huis)", 1]]) {
+  const dg = h?.bucket === "hour" ? 2 : 1;
+  for (const [sel, key, color, digits] of [["[data-hchart=opgewekt]", "generated_kwh", "var(--zon)", dg], ["[data-hchart=verbruik]", "consumption_kwh", "var(--huis)", dg]]) {
     const box = $(sel);
     if (box) box.innerHTML = h ? histChart(h, key, color, box.clientWidth, digits) : "";
   }
   const a = $("[data-hlink]");
   if (a) {
-    const base = state.config.links.period;
+    // a day opens Grafana's Dag dashboard, longer periods Periode
+    const base = h?.unit === "day" ? state.config.links.day : state.config.links.period;
     a.hidden = !base || !h;
     if (base && h) {
       const u = new URL(base, location.href); // the configured link may carry its own range: replace it
