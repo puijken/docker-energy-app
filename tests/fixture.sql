@@ -31,7 +31,8 @@ SELECT now() AS db_now,
        CASE WHEN m.empty THEN '[]'::json
             ELSE '[{"name":"tv","w":114,"time":"2026-01-01T12:00:00+00:00"},{"name":"router","w":42,"time":"2026-01-01T12:00:00+00:00"}]'::json END AS plugs,
        CASE WHEN m.empty THEN NULL ELSE date_trunc('hour', now()) END AS outdoor_time,
-       CASE WHEN m.empty THEN NULL ELSE 8.0 END::double precision AS outdoor_c
+       CASE WHEN m.empty THEN NULL ELSE 8.0 END::double precision AS outdoor_c,
+       CASE WHEN m.empty THEN NULL ELSE 24.0 END::double precision AS battery_temp_c
 FROM smoke_mode m;
 
 CREATE VIEW app_today AS
@@ -42,7 +43,8 @@ SELECT date_trunc('day', now()) AS day_start,
        1.06::double precision AS gas_m3, 0.46::double precision AS import_eur, 0.0::double precision AS export_eur,
        1.60::double precision AS gas_eur, 0.41::double precision AS fixed_eur, 2.47::double precision AS net_eur,
        4.4::double precision AS battery_charged_kwh, 2.5::double precision AS battery_discharged_kwh,
-       2.3::double precision AS battery_out_kwh, 0.0::double precision AS battery_in_kwh
+       2.3::double precision AS battery_out_kwh, 0.0::double precision AS battery_in_kwh,
+       1.0::double precision AS self_consumption
 FROM smoke_mode WHERE NOT empty;
 
 CREATE VIEW app_battery_savings_today AS

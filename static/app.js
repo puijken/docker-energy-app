@@ -52,8 +52,9 @@ function flowSvg() {
     </g>
     <g class="node" data-sheet="batterij" tabindex="0" role="button" aria-label="Batterij">
       <circle cx="78" cy="168" r="39" fill="var(--card)" stroke="var(--bat)" stroke-width="3"/>
-      <text data-t="soc" x="78" y="166" text-anchor="middle" class="big" font-size="19" fill="var(--fg)">—</text>
-      <text data-t="bat-state" x="78" y="183" text-anchor="middle" font-size="10.5" fill="var(--muted)"></text>
+      <text data-t="soc" x="78" y="163" text-anchor="middle" class="big" font-size="19" fill="var(--fg)">—</text>
+      <text data-t="bat-state" x="78" y="178" text-anchor="middle" font-size="10.5" fill="var(--muted)"></text>
+      <text data-t="bat-temp" x="78" y="193" text-anchor="middle" font-size="10" fill="var(--muted)"></text>
       <text data-t="bat-label" x="78" y="225" text-anchor="middle" font-size="11.5" fill="var(--muted)">Batterij</text>
     </g>
     <g class="node" data-sheet="huis" tabindex="0" role="button" aria-label="Huis">
@@ -103,6 +104,7 @@ function renderFlow(svg, d, today) {
   t("soc", d && isNum(d.soc) ? `${fmt[0].format(d.soc)}%` : "—");
   const cw = d ? d.battery_cells_w : null;
   t("bat-state", !d || !isNum(cw) ? "" : cw > 10 ? "ontlaadt" : cw < -10 ? "laadt" : "rust");
+  t("bat-temp", d && isNum(d.battery_temp_c) ? `${fmt[0].format(d.battery_temp_c)} °C` : "");
   t("bat-label", !d || !isNum(cw) || Math.abs(cw) <= 10 ? "Batterij" : `Batterij · ${plain(power(Math.abs(cw)))}`);
 
   setLine(svg, "zon", has ? d.solar_w : null, false);
@@ -180,7 +182,8 @@ function renderToday() {
   const s = state.today?.savings || null;
   const note = $('[data-note="today"]');
   if (note) note.hidden = !!(t && isNum(t.consumption_kwh));
-  setV("opgewekt", kwh(t?.generated_kwh));
+  setV("opgewekt", t && isNum(t.generated_kwh)
+    ? `${num(t.generated_kwh)}<small>kWh${isNum(t.self_consumption) ? ` · ${fmt[0].format(t.self_consumption * 100)} %` : ""}</small>` : "—");
   setV("verbruik", kwh(t?.consumption_kwh));
   setV("zelfvoorzienend", pct(t?.self_sufficiency));
   setV("net", t && isNum(t.import_kwh) ? `${num(t.import_kwh)}<small>· ${num(t.export_kwh)} kWh</small>` : "—");
@@ -290,6 +293,7 @@ const SHEETS = {
       ["Wat", "Laadniveau en wat de cellen nu doen: laden (uit zon of het stopcontact) of ontladen. De lijn naar het huis is wat de batterij aan het huis levert (AC-uitgang)."],
       ["Nu", d ? `cellen ${plain(power(d.battery_cells_w))} (boven nul ontladen) · naar het huis ${plain(power(d.battery_ac_w))}${d.socket_in_w >= 10 ? ` · uit het stopcontact ${plain(power(d.socket_in_w))}` : ""}` : "—"],
       ["Waarom verschil", "Tussen cellen en huis gaat stroom verloren bij het omzetten, en de batterij gebruikt zelf wat (stand-byverbruik)."],
+      ["Temperatuur", d && isNum(d.battery_temp_c) ? `${fmt[1].format(d.battery_temp_c)} °C: de temperatuur die de batterij zelf meldt, dezelfde als in de Anker-app (welke sensor precies is niet bekend)` : "—"],
       ["Periode", LIVE_PERIOD()],
       ["Bron", "thuisbatterij"],
     ]) + link("battery", "Batterij in Grafana") };
@@ -348,6 +352,9 @@ const SHEETS = {
     return { title: `Opgewekt · ${plain(kwh(t?.generated_kwh))}`, body: rows([
       ["Wat", "Wat de zonnepanelen vandaag opwekten."],
       ["Berekening", "stand van de opbrengstteller nu − stand om 00:00"],
+      ["Zelf benut", t && isNum(t.self_consumption)
+        ? `${fmt[0].format(t.self_consumption * 100)} %: het deel dat niet naar het net ging, direct gebruikt of de batterij in. (${num(t.generated_kwh)} − ${num(t.export_kwh)}) ÷ ${num(t.generated_kwh)} kWh. Wat bij het omzetten in de batterij verloren gaat, telt als benut.`
+        : "—: nog niets opgewekt vandaag"],
       ["Periode", TODAY_PERIOD],
       ["Bron", "opbrengstteller van de thuisbatterij (de panelen hangen eraan)"],
     ]) + link("period", "Opgewekt per dag in Grafana") };

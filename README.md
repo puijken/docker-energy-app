@@ -12,10 +12,12 @@ card can link to the matching Grafana dashboard.
 - **Nu:** a flow picture whose lines follow the real wiring, so each one is a measurement: panels →
   battery unit, battery unit → house (AC output), grid ↔ house. Plus gas today, the outdoor
   temperature (with the time of the reading) and the smart plugs.
-- **Vandaag:** generated, house use, self-sufficiency, imported and exported, 00:00 – now.
+- **Vandaag:** generated with the share used yourself (not exported: used directly or stored),
+  house use, self-sufficiency, imported and exported, 00:00 – now.
 - **Geld vandaag:** the energy bill so far, and an estimate of what the battery saved today under the
   2027 rules (no net metering), clearly marked as calculated.
-- **Batterij:** charge level with the lower limit, energy available above it, charged and discharged
+- **Batterij:** (also in the flow picture: charge level, state and the temperature the battery
+  reports) charge level with the lower limit, energy available above it, charged and discharged
   today.
 - A status pill (stale sources, warnings) and an info sheet behind every number: what it is, how it
   is calculated, the period (live or today), and the source.
