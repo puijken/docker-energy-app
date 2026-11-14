@@ -43,7 +43,7 @@ API_MIN_AGE = float(os.environ.get("API_MIN_AGE", "4"))
 BATTERY_INTERVAL = float(os.environ.get("BATTERY_INTERVAL", "60"))
 # A Historie answer (one week, month or year) is kept this long; past periods hardly change.
 HISTORY_MAX_AGE = float(os.environ.get("HISTORY_MAX_AGE", "300"))
-HISTORY_UNITS = ("week", "month", "year")
+HISTORY_UNITS = ("day", "week", "month", "year")
 # The Geld screen (app_money) is re-read at most this often.
 MONEY_INTERVAL = float(os.environ.get("MONEY_INTERVAL", "60"))
 
@@ -317,7 +317,7 @@ async def api_battery(request: Request) -> Response:
 async def api_history(request: Request) -> Response:
     unit = request.query_params.get("unit", "month")
     if unit not in HISTORY_UNITS:
-        return JSONResponse({"ok": False, "error": "unit must be week, month or year"}, status_code=400)
+        return JSONResponse({"ok": False, "error": "unit must be day, week, month or year"}, status_code=400)
     try:
         anchor = dt.date.fromisoformat(request.query_params.get("date", "")) if request.query_params.get("date") else dt.date.today()
     except ValueError:
