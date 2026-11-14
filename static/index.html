@@ -88,6 +88,58 @@
     </div>
   </main>
 
+  <!-- Historie: one week, month or year against the same period last year (app_history, 026). -->
+  <main class="cols" id="scr-historie" hidden>
+    <div class="hist-bar">
+      <div class="seg" role="group" aria-label="Periode">
+        <button type="button" data-hunit="week">Week</button><button type="button" data-hunit="month">Maand</button><button type="button" data-hunit="year">Jaar</button>
+      </div>
+      <div class="hist-nav">
+        <button type="button" id="hist-prev" aria-label="Vorige periode">‹</button>
+        <b id="hist-label">—</b>
+        <button type="button" id="hist-next" aria-label="Volgende periode">›</button>
+      </div>
+      <em id="hist-note"></em>
+    </div>
+
+    <div class="side">
+      <section class="card" aria-labelledby="h-htot">
+        <h2 id="h-htot">Energie</h2>
+        <div class="kpis">
+          <button type="button" class="kpi" data-sheet="hopgewekt"><span class="l"><i class="sw" style="--c:var(--zon)"></i>Opgewekt</span><span class="val" data-v="h-opgewekt">—</span><span class="sub" data-v="h-opgewekt-ly"></span></button>
+          <button type="button" class="kpi" data-sheet="hverbruik"><span class="l"><i class="sw" style="--c:var(--huis)"></i>Verbruik</span><span class="val" data-v="h-verbruik">—</span><span class="sub" data-v="h-verbruik-ly"></span></button>
+          <button type="button" class="kpi" data-sheet="hzelfv"><span class="l"><i class="sw" style="--c:var(--deel)"></i>Zelfvoorzienend</span><span class="val" data-v="h-zelfv">—</span><span class="sub" data-v="h-zelfv-ly"></span></button>
+          <button type="button" class="kpi" data-sheet="hbenut"><span class="l"><i class="sw" style="--c:var(--deel)"></i>Zelf benut</span><span class="val" data-v="h-benut">—</span><span class="sub" data-v="h-benut-ly"></span></button>
+          <button type="button" class="kpi" data-sheet="hnet"><span class="l"><i class="sw" style="--c:var(--uit)"></i>Afgenomen · teruggeleverd</span><span class="val" data-v="h-net">—</span><span class="sub" data-v="h-net-ly"></span></button>
+          <button type="button" class="kpi" data-sheet="hrekening"><span class="l">Energierekening</span><span class="val" data-v="h-rekening">—</span><span class="sub" data-v="h-rekening-ly"></span></button>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="h-hgas">
+        <h2 id="h-hgas">Gas en graaddagen</h2>
+        <div class="kpis">
+          <button type="button" class="kpi" data-sheet="hgas"><span class="l"><i class="sw" style="--c:var(--gas)"></i>Gas</span><span class="val" data-v="h-gas">—</span><span class="sub" data-v="h-gas-ly"></span></button>
+          <button type="button" class="kpi" data-sheet="hgraad"><span class="l">Graaddagen</span><span class="val" data-v="h-graad">—</span><span class="sub" data-v="h-graad-ly"></span></button>
+          <button type="button" class="kpi" data-sheet="hgpg"><span class="l">Gas per graaddag</span><span class="val" data-v="h-gpg">—</span><span class="sub" data-v="h-gpg-ly"></span></button>
+        </div>
+      </section>
+    </div>
+
+    <div class="main-col">
+      <section class="card" aria-labelledby="h-hopg">
+        <h2 id="h-hopg">Opgewekt <em>kWh</em></h2>
+        <button type="button" class="chart" data-sheet="hopgewekt" aria-label="Opgewekt per periode" data-hchart="opgewekt"></button>
+        <p class="legend"><span><i class="sq" style="--c:var(--zon)"></i>deze periode</span><span><i class="ln dash" style="border-top-color:var(--ref)"></i>vorig jaar</span></p>
+      </section>
+      <section class="card" aria-labelledby="h-hverb">
+        <h2 id="h-hverb">Verbruik <em>kWh</em></h2>
+        <button type="button" class="chart" data-sheet="hverbruik" aria-label="Verbruik per periode" data-hchart="verbruik"></button>
+        <p class="legend"><span><i class="sq" style="--c:var(--huis)"></i>deze periode</span><span><i class="ln dash" style="border-top-color:var(--ref)"></i>vorig jaar</span></p>
+        <a class="more" data-hlink hidden>Deze periode in Grafana ›</a>
+      </section>
+    </div>
+  </main>
+
   <!-- Batterij: today's charge level, counters, efficiency per power band and health (app_battery_*, 025). -->
   <main class="cols" id="scr-batterij" hidden>
     <div class="side">

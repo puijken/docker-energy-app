@@ -64,6 +64,11 @@ check "soc today"  /api/battery '"charge_limit_soc":100.0'
 check "bat counts" /api/battery '"full_cycles":1.48'
 check "efficiency" /api/battery '"label":"< 250 W"'
 check "day axis"   /api/battery '"day_end":'
+check "history"    "/api/history?unit=month" '"generated_kwh":56.0'
+check "hist week"  "/api/history?unit=week&date=2026-11-11" '"unit":"week"'
+code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/history?unit=decade")"
+[ "$code" = "400" ] || fail "history with a bad unit: expected 400, got $code"
+echo "ok   hist unit"
 
 # The stream must deliver a live event (the cache) and a fresh one from the background reader.
 stream="$(curl -sN --max-time 4 "$BASE/api/stream" || true)"
@@ -84,6 +89,7 @@ check "empty today" /api/today '"data":null'
 check "empty fcast" /api/today '"forecast":null'
 check "empty bat"   /api/battery '"soc":[]'
 check "empty soh"   /api/battery '"soh":null'
+check "empty hist"  "/api/history?unit=year&date=2026-01-01" '"buckets":[]'
 
 # Database gone: the app keeps answering with ok:false and the last values.
 docker stop "$ID-db" >/dev/null

@@ -115,5 +115,33 @@ FROM smoke_mode m,
              (8, '> 3 kW', NULL, NULL, NULL)) AS b(band, label, solar, battery, socket)
 ORDER BY b.band;
 
+-- Historie: the same JSON shape as the real app_history(unit, anchor), with made-up numbers:
+-- 4 kWh solar and 15 kWh use per day so far this period, last year a bit less of each.
+CREATE FUNCTION app_history(p_unit text, p_anchor date) RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS $f$
+WITH p AS (
+    SELECT u, s, s + CASE u WHEN 'week' THEN interval '1 week' WHEN 'month' THEN interval '1 month' ELSE interval '1 year' END AS e,
+           s - CASE u WHEN 'week' THEN interval '52 weeks' ELSE interval '1 year' END AS ls,
+           CASE WHEN u = 'year' THEN 'month' ELSE 'day' END AS b
+    FROM (SELECT p_unit AS u, date_trunc(p_unit, p_anchor::timestamptz) AS s) x
+), m AS (SELECT empty FROM smoke_mode)
+SELECT jsonb_build_object(
+    'unit', u, 'bucket', b, 'start', s, 'end', e, 'ly_start', ls, 'ly_end', ls + (e - s), 'ly_compare_end', ls + (e - s),
+    'running', now() >= s AND now() < e, 'first_day', CASE WHEN NOT m.empty THEN '2020-10-10'::timestamptz END,
+    'buckets', CASE WHEN m.empty THEN '[]'::jsonb ELSE (SELECT jsonb_agg(jsonb_build_object('t', t, 'generated_kwh', 4.0, 'consumption_kwh', 15.0,
+                 'import_kwh', 11.0, 'export_kwh', 0.5, 'gas_m3', 3.0, 'net_eur', 6.0, 'degree_days', 9.0) ORDER BY t)
+                 FROM generate_series(s, least(e - interval '1 day', now()), ('1 ' || b)::interval) AS t) END,
+    'ly_buckets', CASE WHEN m.empty THEN '[]'::jsonb ELSE (SELECT jsonb_agg(jsonb_build_object('t', t, 'generated_kwh', 3.5, 'consumption_kwh', 14.0,
+                 'gas_m3', 2.5, 'net_eur', 5.0) ORDER BY t)
+                 FROM generate_series(ls, ls + (e - s) - interval '1 day', ('1 ' || b)::interval) AS t) END,
+    'totals', CASE WHEN m.empty THEN jsonb_build_object('days', 0) ELSE jsonb_build_object('days', 14, 'generated_kwh', 56.0, 'consumption_kwh', 210.0,
+                 'self_used_kwh', 49.0, 'import_kwh', 161.0, 'export_kwh', 7.0, 'gas_m3', 42.0, 'net_eur', 84.0, 'degree_days', 126.0,
+                 'self_sufficiency', 0.233, 'self_consumption', 0.875, 'gas_per_degree_day', 0.333) END,
+    'ly_totals', CASE WHEN m.empty THEN jsonb_build_object('days', 0) ELSE jsonb_build_object('days', 14, 'generated_kwh', 49.0, 'consumption_kwh', 196.0,
+                 'self_used_kwh', 40.0, 'import_kwh', 156.0, 'export_kwh', 9.0, 'gas_m3', 35.0, 'net_eur', 70.0, 'degree_days', 110.0,
+                 'self_sufficiency', 0.204, 'self_consumption', 0.816, 'gas_per_degree_day', 0.318) END)
+FROM p, m;
+$f$;
+GRANT EXECUTE ON FUNCTION app_history(text, date) TO energy_app;
+
 GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
                 app_battery_soc_today, app_battery_summary, app_battery_efficiency TO energy_app;

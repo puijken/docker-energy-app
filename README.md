@@ -29,6 +29,13 @@ card can link to the matching Grafana dashboard.
 - A wall view at `/?kiosk`: always dark, large numbers, a clock, a small shift every minute against
   burn-in, dimmed at night, and a screen wake lock.
 
+### Historie
+
+One week, month or year at a time (‹ › to page back), against the same period last year: totals for
+energy, money and gas with the change, gas per degree day, and bars per day (per month for a year)
+for generated and used energy with last year as a grey line. While a period is still running, last
+year is counted up to the same day.
+
 ### Batterij
 
 - **Nu:** charge level with the lower limit, the power of the cells (laadt / ontlaadt / rust),
@@ -68,6 +75,7 @@ that screen is open.
 | `app_battery_soc_today` | 0 – 288 | Batterij screen: `time` (5-minute buckets from local midnight), `soc`, `charge_limit_soc`, `discharge_limit_soc` |
 | `app_battery_summary` | one (all null without data) | lifetime counters, `rated_kwh`, `full_cycles`, `soh`, temperature now and today's range, today's lowest/highest charge level, `cell_efficiency_30d` and its inputs, `first_reading` |
 | `app_battery_efficiency` | nine | per power band (`band`, `label`): out ÷ in for `solar`, `battery`, `socket`, `direct`; null when there are too few readings |
+| `app_history(unit, date)` | function → JSON | Historie: the week, month or year containing `date`: `start`, `end`, `buckets` and `ly_buckets` (per day, or per month for a year), `totals` and `ly_totals` (energy, money, gas, degree days and the ratios), `running`, `first_day` |
 | `app_forecast` | zero or one | solar forecast: `fetched_at`, `today_kwh`, `rest_today_kwh` (now → midnight), `tomorrow_kwh`, `tomorrow_hours` (24 when tomorrow is complete). Optional: when it is missing or fails, the rest of the screen works and the card shows “—” |
 
 `tests/fixture.sql` has stand-ins with exactly the columns the app reads. The real definitions belong
@@ -84,6 +92,7 @@ All settings come from the environment. None of them is secret except the databa
 | `DB_POOL_SIZE` | `2` | maximum database connections |
 | `LIVE_INTERVAL` | `5` | seconds between live reads |
 | `TODAY_INTERVAL` | `60` | seconds between reads of the day views |
+| `HISTORY_MAX_AGE` | `300` | seconds a Historie answer is kept (60 for a period that is still running) |
 | `BATTERY_INTERVAL` | `60` | the Batterij screen's data is re-read at most this often (only while a screen asks for it) |
 | `PLUG_LABELS` | (empty) | display names, `source=Label,...`; also the plugs the status sheet expects |
 | `LINK_DAY`, `LINK_PERIOD`, `LINK_MONEY`, `LINK_BATTERY`, `LINK_PLUGS`, `LINK_TECH` | (empty) | Grafana links per card and tab; a missing link hides it |
@@ -121,6 +130,7 @@ ALTER ROLE energy_app SET statement_timeout = '5s';
 GRANT USAGE ON SCHEMA public TO energy_app;
 GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
                 app_battery_soc_today, app_battery_summary, app_battery_efficiency TO energy_app;
+GRANT EXECUTE ON FUNCTION app_history(text, date) TO energy_app;
 -- then set its password by hand, not in a file you commit
 ```
 
@@ -131,6 +141,7 @@ GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
 | `/` | the page |
 | `/api/stream` | Server-Sent Events: `live` and `today` events, a comment line every 15 s |
 | `/api/live`, `/api/today` | the same data as JSON (re-read at most every few seconds) |
+| `/api/history?unit=week\|month\|year&date=YYYY-MM-DD` | the Historie screen for that period (400 for another unit or a bad date) |
 | `/api/battery` | the Batterij screen: today's charge level, the summary row, efficiency per band, the day's start and end (re-read at most every `BATTERY_INTERVAL` seconds) |
 | `/api/config` | links, plug labels, intervals, time zone |
 | `/healthz` | 200 when the database answers, 503 otherwise (used by the image's `HEALTHCHECK`) |

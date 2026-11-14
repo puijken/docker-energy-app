@@ -2,8 +2,8 @@
 
 It shows what the house is doing now and how today went, from a TimescaleDB that another service
 fills. It never talks to a device and never writes: it connects with a read-only database role and
-reads views only (app_live, app_today, app_battery_savings_today, app_forecast, and app_battery_* for
-the Batterij screen). All calculation rules live in those views, so the numbers match whatever else
+reads views only (app_live, app_today, app_battery_savings_today, app_forecast, app_battery_* for
+the Batterij screen) and one read-only function (app_history, for the Historie screen). All calculation rules live in those views, so the numbers match whatever else
 reads the same database.
 
 One reader serves every open screen: a background task reads the live view every LIVE_INTERVAL
@@ -41,6 +41,9 @@ HEARTBEAT_INTERVAL = float(os.environ.get("HEARTBEAT_INTERVAL", "15"))
 API_MIN_AGE = float(os.environ.get("API_MIN_AGE", "4"))
 # The Batterij screen's day chart, counters and efficiency change slowly: read at most this often.
 BATTERY_INTERVAL = float(os.environ.get("BATTERY_INTERVAL", "60"))
+# A Historie answer (one week, month or year) is kept this long; past periods hardly change.
+HISTORY_MAX_AGE = float(os.environ.get("HISTORY_MAX_AGE", "300"))
+HISTORY_UNITS = ("week", "month", "year")
 
 
 def conninfo() -> str:
@@ -115,6 +118,7 @@ class Hub:
         self.today_read_at = 0.0
         self.battery: dict | None = None
         self.battery_read_at = 0.0
+        self.history: dict[tuple, tuple[float, dict]] = {}
         self.last_ok = 0.0
         self.last_error: str | None = None
         self.lock = asyncio.Lock()
@@ -126,10 +130,10 @@ class Hub:
                 await cur.execute(sql)
                 return await cur.fetchall()
 
-    async def _query_one(self, sql: str) -> dict | None:
+    async def _query_one(self, sql: str, params: dict | None = None) -> dict | None:
         async with self.pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql)
+                await cur.execute(sql, params)
                 return await cur.fetchone()
 
     async def refresh_live(self) -> None:
@@ -188,6 +192,27 @@ class Hub:
                             "efficiency": old.get("efficiency"), "day_start": old.get("day_start"),
                             "day_end": old.get("day_end")}
         self.battery_read_at = time.monotonic()
+
+    async def read_history(self, unit: str, anchor: dt.date) -> dict:
+        """One week, month or year for the Historie screen, from app_history() (all rules in SQL).
+        Cached per (unit, anchor) for HISTORY_MAX_AGE seconds; at most 32 entries."""
+        key = (unit, anchor)
+        now = time.monotonic()
+        hit = self.history.get(key)
+        # a period that is still running changes every minute; a past one hardly at all
+        max_age = 60 if hit and (hit[1].get("data") or {}).get("running") else HISTORY_MAX_AGE
+        if hit and now - hit[0] < max_age:
+            return hit[1]
+        try:
+            row = await self._query_one("SELECT app_history(%(u)s, %(a)s) AS h", {"u": unit, "a": anchor})
+            result = {"ok": True, "data": row["h"] if row else None}
+        except Exception as exc:
+            log.warning("history read failed: %s: %s", type(exc).__name__, exc)
+            return {"ok": False, "data": hit[1]["data"] if hit else None}
+        if len(self.history) >= 32:
+            self.history.pop(min(self.history, key=lambda k: self.history[k][0]))
+        self.history[key] = (now, result)
+        return result
 
     async def ensure_fresh(self, kind: str) -> None:
         """For plain API calls: re-read only when the cached value is older than API_MIN_AGE."""
@@ -269,6 +294,18 @@ async def api_battery(request: Request) -> Response:
     return Response(to_json(hub.battery), media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
+async def api_history(request: Request) -> Response:
+    unit = request.query_params.get("unit", "month")
+    if unit not in HISTORY_UNITS:
+        return JSONResponse({"ok": False, "error": "unit must be week, month or year"}, status_code=400)
+    try:
+        anchor = dt.date.fromisoformat(request.query_params.get("date", "")) if request.query_params.get("date") else dt.date.today()
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "date must be YYYY-MM-DD"}, status_code=400)
+    result = await hub.read_history(unit, anchor)
+    return Response(to_json(result), media_type="application/json", headers={"Cache-Control": "no-store"})
+
+
 async def api_stream(request: Request) -> Response:
     queue: asyncio.Queue = asyncio.Queue(maxsize=8)
 
@@ -322,6 +359,7 @@ routes = [
     Route("/api/live", api_live),
     Route("/api/today", api_today),
     Route("/api/battery", api_battery),
+    Route("/api/history", api_history),
     Route("/api/stream", api_stream),
     Route("/healthz", healthz),
     Route("/manifest.webmanifest", manifest),

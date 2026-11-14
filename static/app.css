@@ -68,6 +68,8 @@ a { color: var(--accent); }
   .main-col > :last-child, .side > :last-child { flex-grow: 1; }
   #scr-batterij > .side { grid-column: 2; grid-row: 1; }
   #scr-batterij > .main-col { grid-column: 1; grid-row: 1; }
+  #scr-historie > .side { grid-column: 2; grid-row: 2; }
+  #scr-historie > .main-col { grid-column: 1; grid-row: 2; }
   .shell { padding-bottom: 24px; }
 }
 
@@ -223,3 +225,15 @@ body.walled .shell { display: none; }
 .eff-bar b { font-size: 12.5px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
 .eff .empty { margin: 4px 0; color: var(--muted); font-size: 13px; }
 @media (max-width: 420px) { .kpis3 { grid-template-columns: 1fr 1fr; } }
+
+/* Historie screen */
+.hist-bar { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.seg { display: inline-flex; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.seg button { border: 0; background: none; color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 600; padding: 5px 12px; border-radius: 7px; cursor: pointer; }
+.seg button.on { background: var(--accent); color: var(--card); }
+.seg button:focus-visible, .hist-nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hist-nav { display: inline-flex; align-items: center; gap: 6px; }
+.hist-nav b { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; min-width: 0; }
+.hist-nav button { width: 34px; height: 34px; padding: 0 0 3px; display: inline-grid; place-items: center; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font: 600 22px/1 var(--f-body); cursor: pointer; }
+.hist-nav button:disabled { opacity: .35; cursor: default; }
+.hist-bar em { font-style: normal; color: var(--muted); font-size: 12.5px; }

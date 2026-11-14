@@ -544,6 +544,15 @@ const SHEETS = {
       ["Bron", "thuisbatterij"],
     ]) + link("battery", "Geladen en ontladen in Grafana") };
   },
+  hopgewekt() { return histSheet("Opgewekt", "generated_kwh", "kWh", "Wat de zonnepanelen opwekten.", "som van de opbrengst per dag (de teller van de omvormer, sinds 13-11-2026 die van de thuisbatterij)", "omvormer / thuisbatterij"); },
+  hverbruik() { return histSheet("Verbruik", "consumption_kwh", "kWh", "Wat het huis gebruikte, auto en stekkers inbegrepen.", "per dag: afgenomen − teruggeleverd + opgewekt (vóór de batterij) of + uit de batterij − uit het stopcontact (sinds de batterij)", "slimme meter en omvormer / thuisbatterij"); },
+  hzelfv() { return histSheet("Zelfvoorzienend", "self_sufficiency", "%", "Deel van je verbruik dat uit eigen zon kwam, direct of via de batterij.", "eigen verbruik ÷ verbruik over de hele periode (niet het gemiddelde van de dagen)", "slimme meter en omvormer / thuisbatterij"); },
+  hbenut() { return histSheet("Zelf benut", "self_consumption", "%", "Deel van de opgewekte zon dat je niet teruggeleverd hebt: zelf gebruikt of in de batterij gezet.", "(opgewekt − teruggeleverd) ÷ opgewekt over de hele periode", "slimme meter en omvormer / thuisbatterij"); },
+  hnet() { return histSheet("Afgenomen · teruggeleverd", "import_kwh", "kWh", "Stroom van en naar het net.", "standen van de slimme meter, normaal- en daltarief samen", "slimme meter", "export_kwh"); },
+  hrekening() { return histSheet("Energierekening", "net_eur", "€", "Wat deze periode kostte volgens je energiecontracten.", "stroomkosten − terugleververgoeding + gaskosten + vaste kosten, met de prijzen van het contract dat toen gold en salderen per afrekenperiode (tot en met 2026). Terugleverkosten tellen nog niet mee.", "meterstanden en de contractprijzen uit DSMR-reader"); },
+  hgas() { return histSheet("Gas", "gas_m3", "m³", "Gasverbruik.", "standen van de gasmeter per dag", "gasmeter via de slimme meter"); },
+  hgraad() { return histSheet("Graaddagen", "degree_days", "", "Hoe koud het was: per dag 18 °C min de gemiddelde buitentemperatuur (0 als het warmer was), opgeteld. Twee keer zoveel graaddagen betekent ongeveer twee keer zoveel stookweer.", "per dag max(18 − daggemiddelde, 0); een dag telt alleen mee met minstens 18 uurmetingen. Gewone graaddagen, niet de gewogen variant.", "Buienradar via DSMR-reader (uurlijks, sinds 4-3-2022)"); },
+  hgpg() { return histSheet("Gas per graaddag", "gas_per_degree_day", "m³", "Gas gedeeld door graaddagen: zo zie je of je zuiniger stookt, los van of het een koude of zachte periode was.", "gas op dagen met een graaddagwaarde ÷ graaddagen; pas vanaf 5 graaddagen (anders “—”). Gas voor warm water telt ook mee, dus in de zomer is dit getal hoog.", "gasmeter en Buienradar"); },
   temperatuur() {
     const d = state.live?.data, sm = state.battery?.summary;
     return { title: `Temperatuur batterij · ${d && isNum(d.battery_temp_c) ? fmt[0].format(d.battery_temp_c) + " °C" : "—"}`, body: rows([
@@ -626,9 +635,25 @@ const SHEETS = {
       '<li><a href="#" data-sheet="status">Status van de bronnen</a></li>',
       '<li><a href="?kiosk">Wandweergave</a></li>',
     ].filter(Boolean).join("");
-    return { title: "Meer", body: `<ul>${items}</ul><p style="color:var(--muted)">Thuis en Batterij staan in de app. Historie en Geld openen voorlopig Grafana.</p>` };
+    return { title: "Meer", body: `<ul>${items}</ul><p style="color:var(--muted)">Thuis, Historie en Batterij staan in de app. Geld opent voorlopig Grafana.</p>` };
   },
 };
+
+// Sheet for a Historie total: the selected period and the same period last year.
+function histSheet(title, key, unitName, what, how, source, key2) {
+  const h = state.hist.data, T = h?.totals || {}, Y = h?.ly_totals || {};
+  const f = (x) => (!isNum(x) ? "—" : unitName === "%" ? `${fmt[0].format(x * 100)} %` : unitName === "€" ? eur(x, 2) : `${fmt[unitName === "m³" && key === "gas_per_degree_day" ? 2 : 1].format(x)}${unitName ? " " + unitName : ""}`);
+  const val = (o) => (key2 ? `${f(o[key])} · ${f(o[key2])}` : f(o[key]));
+  const period = h ? `${histLabel(h)}${h.running ? ", tot nu" : ""}` : "—";
+  const ly = h ? `${new Date(h.ly_start).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric", timeZone: TZ })} – ${new Date(new Date(h.ly_compare_end).getTime() - 3600000).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric", timeZone: TZ })}` : "—";
+  return { title: `${title} · ${h ? val(T) : "—"}`, body: rows([
+    ["Wat", what],
+    ["Berekening", how],
+    ["Deze periode", `${period}: ${h ? val(T) : "—"}`],
+    ["Vorig jaar", `${ly}: ${h ? val(Y) : "—"}`],
+    ["Bron", source],
+  ]) + link("period", "Periode in Grafana") };
+}
 
 function openSheet(key) {
   const make = SHEETS[key];
@@ -655,6 +680,149 @@ document.addEventListener("keydown", (e) => {
   if ((e.key === "Enter" || e.key === " ") && e.target.matches?.("g[data-sheet]")) { e.preventDefault(); openSheet(e.target.dataset.sheet); }
 });
 $("#sheet").addEventListener("click", (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
+
+// ---------- Historie screen (/api/history: app_history(unit, date), rules in SQL) ----------
+const HIST_UNITS = { week: "Week", month: "Maand", year: "Jaar" };
+const MONTHS = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+const DAYS = ["ma", "di", "wo", "do", "vr", "za", "zo"];
+state.hist = { unit: "month", anchor: null, data: null, loading: false };
+
+// Calendar date of an instant in the app's time zone, as [y, m (1-12), d].
+function ymd(iso) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { year: "numeric", month: "numeric", day: "numeric", timeZone: TZ })
+    .formatToParts(new Date(iso)).map((x) => [x.type, Number(x.value)]));
+  return [p.year, p.month, p.day];
+}
+const isoDate = (y, m, d) => { const t = new Date(Date.UTC(y, m - 1, d)); return t.toISOString().slice(0, 10); };
+const todayIso = () => { const [y, m, d] = ymd(new Date().toISOString()); return isoDate(y, m, d); };
+function isoWeek(y, m, d) {
+  const t = new Date(Date.UTC(y, m - 1, d)); const day = (t.getUTCDay() + 6) % 7;
+  t.setUTCDate(t.getUTCDate() - day + 3);
+  const first = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
+  return 1 + Math.round(((t - first) / 86400000 - 3 + ((first.getUTCDay() + 6) % 7)) / 7);
+}
+function histLabel(h) {
+  const [y, m, d] = ymd(h.start);
+  if (h.unit === "year") return String(y);
+  if (h.unit === "month") return `${new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString("nl-NL", { month: "long", timeZone: "UTC" })} ${y}`;
+  const [ey, em, ed] = ymd(new Date(new Date(h.end).getTime() - 3600000).toISOString()); // the last day
+  const range = em === m ? `${d}–${ed} ${MONTHS[m - 1]}` : `${d} ${MONTHS[m - 1]} – ${ed} ${MONTHS[em - 1]}`;
+  return `week ${isoWeek(y, m, d)} · ${range} ${ey}`;
+}
+// The anchor date one period before or after the shown one.
+function histShift(h, step) {
+  const [y, m, d] = ymd(h.start);
+  if (h.unit === "year") return isoDate(y + step, 1, 1);
+  if (h.unit === "month") return isoDate(y, m + step, 1);
+  return isoDate(y, m, d + 7 * step);
+}
+
+// Slot index of a bucket: day number within the period, or month number for a year.
+function slotOf(h, t, start) {
+  if (h.bucket === "month") return ymd(t)[1] - 1;
+  return Math.round((new Date(t) - new Date(start)) / 86400000);
+}
+function slotCount(h) {
+  if (h.bucket === "month") return 12;
+  return Math.round((new Date(h.end) - new Date(h.start)) / 86400000);
+}
+function slotLabel(h, i) {
+  if (h.bucket === "month") return MONTHS[i];
+  const [y, m, d] = ymd(h.start);
+  if (h.unit === "week") return DAYS[i];
+  return String(new Date(Date.UTC(y, m - 1, d + i)).getUTCDate());
+}
+
+// Bars for this period, last year's same period as a grey line with dots.
+function histChart(h, key, color, width, digits) {
+  const n = slotCount(h);
+  const now = new Array(n).fill(null), ly = new Array(n).fill(null);
+  for (const b of h.buckets) { const i = slotOf(h, b.t, h.start); if (i >= 0 && i < n && isNum(b[key])) now[i] = b[key]; }
+  for (const b of h.ly_buckets) { const i = slotOf(h, b.t, h.ly_start); if (i >= 0 && i < n && isNum(b[key])) ly[i] = b[key]; }
+  const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(230, Math.max(160, W * 0.34)));
+  const L = 44, R = 6, T = 10, B = 24;
+  const max = Math.max(1, ...now.filter(isNum), ...ly.filter(isNum));
+  const step = [1, 2, 2.5, 5, 10].map((f) => f * 10 ** Math.floor(Math.log10(max / 3))).find((s) => max / s <= 4) || max / 3;
+  const top = Math.ceil(max / step) * step;
+  const y = (v) => T + (1 - v / top) * (H - T - B);
+  const slotW = (W - L - R) / n, cx = (i) => L + slotW * (i + 0.5);
+  const bw = Math.max(2, Math.min(28, slotW * 0.62));
+  let grid = "";
+  for (let v = 0; v <= top + 1e-9; v += step) grid += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="g"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="ax">${fmt[Number.isInteger(step) ? 0 : 1].format(v)}</text>`;
+  const every = h.bucket === "month" ? (W < 420 ? 2 : 1) : h.unit === "week" ? 1 : W < 420 ? 7 : 5;
+  const ticks = Array.from({ length: n }, (_, i) => i).filter((i) => h.unit === "month" ? (i === 0 || (i + 1) % every === 0) : i % every === 0)
+    .map((i) => `<text x="${cx(i)}" y="${H - 6}" text-anchor="middle" class="ax">${slotLabel(h, i)}</text>`).join("");
+  const bars = now.map((v, i) => isNum(v) && v > 0 ? `<rect x="${(cx(i) - bw / 2).toFixed(1)}" y="${y(v).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y(0) - y(v)).toFixed(1)}" rx="${Math.min(4, bw / 3).toFixed(1)}" fill="${color}"><title>${slotLabel(h, i)}: ${fmt[digits].format(v)}${isNum(ly[i]) ? ` (vorig jaar ${fmt[digits].format(ly[i])})` : ""}</title></rect>` : "").join("");
+  let line = "", dots = "";
+  ly.forEach((v, i) => {
+    if (!isNum(v)) return;
+    line += `${line && isNum(ly[i - 1]) ? "L" : "M"}${cx(i).toFixed(1)} ${y(v).toFixed(1)}`;
+    dots += `<circle cx="${cx(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.5" fill="var(--ref)"/>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">${grid}${bars}<path d="${line}" fill="none" stroke="var(--ref)" stroke-width="1.5" stroke-dasharray="4 3"/>${dots}${ticks}</svg>`;
+}
+
+// "vorig jaar 312 kWh (+5 %)" under a total
+function vsLastYear(now, ly, fmtFn, pctPoints) {
+  if (!isNum(ly)) return "vorig jaar —";
+  let delta = "";
+  if (isNum(now)) {
+    if (pctPoints) { const p = (now - ly) * 100; delta = ` (${p >= 0 ? "+" : "−"}${fmt[0].format(Math.abs(p))} pt)`; }
+    else if (ly !== 0) { const p = (now / ly - 1) * 100; delta = ` (${p >= 0 ? "+" : "−"}${fmt[0].format(Math.abs(p))} %)`; }
+  }
+  return `vorig jaar ${fmtFn(ly)}${delta}`;
+}
+
+function renderHistory() {
+  const h = state.hist.data;
+  $$("[data-hunit]").forEach((b) => { const on = b.dataset.hunit === state.hist.unit; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
+  $("#hist-label").textContent = h ? histLabel(h) : "—";
+  const today = todayIso();
+  $("#hist-next").disabled = !h || histShift(h, 1) > today;
+  $("#hist-prev").disabled = !h || (h.first_day && new Date(h.start) <= new Date(h.first_day));
+  $("#hist-note").textContent = !h ? "" : h.running ? "tot nu; vorig jaar tot dezelfde dag" : "";
+  const T = h?.totals || {}, Y = h?.ly_totals || {};
+  const k = (x) => `${fmt[0].format(x)} kWh`, e = (x) => (isNum(x) ? `€ ${fmt[0].format(x)}` : "—"), p = (x) => (isNum(x) ? `${fmt[0].format(x * 100)} %` : "—");
+  setV("h-opgewekt", kwh(T.generated_kwh, 0)); setV("h-opgewekt-ly", vsLastYear(T.generated_kwh, Y.generated_kwh, k));
+  setV("h-verbruik", kwh(T.consumption_kwh, 0)); setV("h-verbruik-ly", vsLastYear(T.consumption_kwh, Y.consumption_kwh, k));
+  setV("h-zelfv", pct(T.self_sufficiency)); setV("h-zelfv-ly", vsLastYear(T.self_sufficiency, Y.self_sufficiency, p, true));
+  setV("h-benut", pct(T.self_consumption)); setV("h-benut-ly", vsLastYear(T.self_consumption, Y.self_consumption, p, true));
+  setV("h-net", isNum(T.import_kwh) ? `${fmt[0].format(T.import_kwh)}<small>· ${fmt[0].format(T.export_kwh)} kWh</small>` : "—");
+  setV("h-net-ly", isNum(Y.import_kwh) ? `vorig jaar ${fmt[0].format(Y.import_kwh)} · ${fmt[0].format(Y.export_kwh)} kWh` : "vorig jaar —");
+  setV("h-rekening", isNum(T.net_eur) ? eur(T.net_eur, 0) : "—"); setV("h-rekening-ly", vsLastYear(T.net_eur, Y.net_eur, e));
+  setV("h-gas", isNum(T.gas_m3) ? unit(fmt[0].format(T.gas_m3), "m³") : "—"); setV("h-gas-ly", vsLastYear(T.gas_m3, Y.gas_m3, (x) => `${fmt[0].format(x)} m³`));
+  setV("h-graad", isNum(T.degree_days) ? fmt[0].format(T.degree_days) : "—"); setV("h-graad-ly", vsLastYear(T.degree_days, Y.degree_days, (x) => fmt[0].format(x)));
+  setV("h-gpg", isNum(T.gas_per_degree_day) ? unit(fmt[2].format(T.gas_per_degree_day), "m³") : "—");
+  setV("h-gpg-ly", vsLastYear(T.gas_per_degree_day, Y.gas_per_degree_day, (x) => `${fmt[2].format(x)} m³`));
+  for (const [sel, key, color, digits] of [["[data-hchart=opgewekt]", "generated_kwh", "var(--zon)", 1], ["[data-hchart=verbruik]", "consumption_kwh", "var(--huis)", 1]]) {
+    const box = $(sel);
+    if (box) box.innerHTML = h ? histChart(h, key, color, box.clientWidth, digits) : "";
+  }
+  const a = $("[data-hlink]");
+  if (a) {
+    const base = state.config.links.period;
+    a.hidden = !base || !h;
+    if (base && h) { a.href = `${base}${base.includes("?") ? "&" : "?"}from=${new Date(h.start).getTime()}&to=${Math.min(new Date(h.end).getTime(), Date.now())}`; a.target = "_blank"; a.rel = "noopener"; }
+  }
+}
+
+let histTimer = null, histSeq = 0;
+async function fetchHistory() {
+  const seq = ++histSeq;
+  const q = new URLSearchParams({ unit: state.hist.unit, date: state.hist.anchor || todayIso() });
+  try {
+    const r = await fetch(`/api/history?${q}`, { cache: "no-store", credentials: "same-origin" });
+    if (r.ok && seq === histSeq) { const j = await r.json(); if (j.data) state.hist.data = j.data; }
+  } catch { /* offline: keep what we have */ }
+  if (seq === histSeq) { renderHistory(); refreshSheet(); }
+}
+function histGo(anchor) { state.hist.anchor = anchor; fetchHistory(); }
+document.addEventListener("click", (e) => {
+  const u = e.target.closest("[data-hunit]");
+  if (u) { state.hist.unit = u.dataset.hunit; state.hist.anchor = todayIso(); fetchHistory(); return; }
+  if (e.target.closest("#hist-prev") && state.hist.data) histGo(histShift(state.hist.data, -1));
+  if (e.target.closest("#hist-next") && state.hist.data) histGo(histShift(state.hist.data, 1));
+});
 
 // ---------- Batterij screen (/api/battery: app_battery_soc_today, _summary, _efficiency) ----------
 // Fetched only while the screen is open, every batteryInterval seconds; live values (charge level,
@@ -749,7 +917,7 @@ async function fetchBattery() {
 }
 
 // ---------- screens: Thuis (default) and Batterij, by the address's #hash ----------
-const SCREENS = { thuis: "Thuis", batterij: "Batterij" };
+const SCREENS = { thuis: "Thuis", historie: "Historie", batterij: "Batterij" };
 function currentScreen() { const h = location.hash.replace("#", ""); return SCREENS[h] ? h : "thuis"; }
 function showScreen() {
   const name = currentScreen();
@@ -762,6 +930,13 @@ function showScreen() {
     if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   });
   clearInterval(batteryTimer); batteryTimer = null;
+  clearInterval(histTimer); histTimer = null;
+  if (name === "historie" && !wallMode) {
+    if (!state.hist.anchor) state.hist.anchor = todayIso();
+    fetchHistory();
+    // a running period changes during the day; a past one doesn't
+    histTimer = setInterval(() => { if (state.hist.data?.running) fetchHistory(); }, 60000);
+  }
   if (name === "batterij" && !wallMode) {
     fetchBattery();
     batteryTimer = setInterval(fetchBattery, Math.max(30, state.config.batteryInterval || 60) * 1000);
@@ -770,7 +945,7 @@ function showScreen() {
 }
 window.addEventListener("hashchange", showScreen);
 let resizeTimer = null;
-window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (state.battery) renderBattery(); }, 200); });
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (state.battery) renderBattery(); if (state.hist.data) renderHistory(); }, 200); });
 
 // ---------- tabs ----------
 const ICONS = {
@@ -789,7 +964,7 @@ function renderTabs() {
     if (!href) return "";
     return `<a class="tab" href="${esc(href)}" target="_blank" rel="noopener" title="${label} in Grafana">${svg}<span>${label} <span class="ext">↗</span></span></a>`;
   };
-  const html = tab("thuis", "Thuis") + tab("historie", "Historie", L.period) + tab("geld", "Geld", L.money) + tab("batterij", "Batterij") + tab("meer", "Meer");
+  const html = tab("thuis", "Thuis") + tab("historie", "Historie") + tab("geld", "Geld", L.money) + tab("batterij", "Batterij") + tab("meer", "Meer");
   $$("[data-tabs]").forEach((n) => { n.innerHTML = html; });
   $$("[data-link]").forEach((a) => {
     const href = L[a.dataset.link];
