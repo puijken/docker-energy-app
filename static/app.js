@@ -104,12 +104,14 @@ function renderFlow(svg, d, today) {
   t("soc", d && isNum(d.soc) ? `${fmt[0].format(d.soc)}%` : "—");
   const cw = d ? d.battery_cells_w : null;
   t("bat-state", !d || !isNum(cw) ? "" : cw > 10 ? "ontlaadt" : cw < -10 ? "laadt" : "rust");
+  const bs = $('[data-t="bat-state"]', svg);
+  if (bs) bs.setAttribute("fill", !d || !isNum(cw) || Math.abs(cw) <= 10 ? "var(--muted)" : cw > 0 ? "var(--uit)" : "var(--eigen)");
   t("bat-temp", d && isNum(d.battery_temp_c) ? `${fmt[0].format(d.battery_temp_c)} °C` : "");
   t("bat-label", !d || !isNum(cw) || Math.abs(cw) <= 10 ? "Batterij" : `Batterij · ${plain(power(Math.abs(cw)))}`);
 
   setLine(svg, "zon", has ? d.solar_w : null, false);
-  if (has && d.battery_ac_w >= 10) setLine(svg, "bat", d.battery_ac_w, false);
-  else if (has && d.socket_in_w >= 10) setLine(svg, "bat", d.socket_in_w, true);
+  if (has && d.battery_ac_w >= 10) setLine(svg, "bat", d.battery_ac_w, false, "var(--uit)");
+  else if (has && d.socket_in_w >= 10) setLine(svg, "bat", d.socket_in_w, true, "var(--eigen)");
   else setLine(svg, "bat", null);
 
   const g = has ? d.grid_w : null;
@@ -118,8 +120,8 @@ function renderFlow(svg, d, today) {
     setLine(svg, "net", g, false, "var(--uit)");
     box.setAttribute("stroke", "var(--uit)"); label.setAttribute("fill", "var(--uit)"); label.textContent = "Net · afname";
   } else if (isNum(g) && g <= -10) {
-    setLine(svg, "net", g, true, "var(--terug)");
-    box.setAttribute("stroke", "var(--terug)"); label.setAttribute("fill", "var(--fg)"); label.textContent = "Net · terug";
+    setLine(svg, "net", g, true, "var(--eigen)");
+    box.setAttribute("stroke", "var(--eigen)"); label.setAttribute("fill", "var(--eigen)"); label.textContent = "Net · terug";
   } else {
     setLine(svg, "net", null);
     box.setAttribute("stroke", "var(--ref)"); label.setAttribute("fill", "var(--muted)"); label.textContent = isNum(g) ? "Net · 0 W" : "Net · —";
@@ -290,7 +292,7 @@ const SHEETS = {
   batterij() {
     const d = state.live?.data;
     return { title: `Batterij · ${isNum(d?.soc) ? fmt[0].format(d.soc) + "%" : "—"}`, body: rows([
-      ["Wat", "Laadniveau en wat de cellen nu doen: laden (uit zon of het stopcontact) of ontladen. De lijn naar het huis is wat de batterij aan het huis levert (AC-uitgang)."],
+      ["Wat", "Laadniveau en wat de cellen nu doen: laden (groen; uit zon of het stopcontact) of ontladen (rood). De lijn naar het huis is wat de batterij aan het huis levert (AC-uitgang): rood; groen als hij uit het stopcontact laadt."],
       ["Nu", d ? `cellen ${plain(power(d.battery_cells_w))} (boven nul ontladen) · naar het huis ${plain(power(d.battery_ac_w))}${d.socket_in_w >= 10 ? ` · uit het stopcontact ${plain(power(d.socket_in_w))}` : ""}` : "—"],
       ["Waarom verschil", "Tussen cellen en huis gaat stroom verloren bij het omzetten, en de batterij gebruikt zelf wat (stand-byverbruik)."],
       ["Temperatuur", d && isNum(d.battery_temp_c) ? `${fmt[1].format(d.battery_temp_c)} °C: de temperatuur die de batterij zelf meldt, dezelfde als in de Anker-app (welke sensor precies is niet bekend)` : "—"],
@@ -314,7 +316,7 @@ const SHEETS = {
     const g = d?.grid_w;
     const what = !isNum(g) ? "—" : g >= 10 ? `afname ${plain(power(g))}` : g <= -10 ? `teruglevering ${plain(power(-g))}` : "bijna niets";
     return { title: `Net · ${what}`, body: rows([
-      ["Wat", "Stroom van of naar het net. Rood: je neemt af. Steenkleur: je levert terug."],
+      ["Wat", "Stroom van of naar het net. Rood: je neemt af. Groen: je levert terug."],
       ["Periode", LIVE_PERIOD()],
       ["Bron", "slimme meter (P1)"],
     ]) + link("day", "Net vandaag in Grafana") };
