@@ -45,8 +45,12 @@ BATTERY_INTERVAL = float(os.environ.get("BATTERY_INTERVAL", "60"))
 # A Historie answer (one week, month or year) is kept this long; past periods hardly change.
 HISTORY_MAX_AGE = float(os.environ.get("HISTORY_MAX_AGE", "300"))
 HISTORY_UNITS = ("day", "week", "month", "year")
-# The Geld screen (app_money) is re-read at most this often.
-MONEY_INTERVAL = float(os.environ.get("MONEY_INTERVAL", "60"))
+# The Geld and Meer screens (app_money, app_meer) are re-read at most this often. Their figures move
+# slowly and app_money costs ~0.3 s, so every 5 minutes, not every minute.
+MONEY_INTERVAL = float(os.environ.get("MONEY_INTERVAL", "300"))
+# "Bespaard door de batterij" on Thuis (app_battery_savings_today, ~0.2 s per read) is re-read at most
+# this often; the rest of the day figures keep TODAY_INTERVAL.
+SAVINGS_INTERVAL = float(os.environ.get("SAVINGS_INTERVAL", "300"))
 
 
 def conninfo() -> str:
@@ -121,6 +125,7 @@ class Hub:
         self.today: dict | None = None
         self.live_read_at = 0.0
         self.today_read_at = 0.0
+        self.savings_read_at = 0.0
         self.battery: dict | None = None
         self.battery_read_at = 0.0
         self.history: dict[tuple, tuple[float, dict]] = {}
@@ -162,7 +167,12 @@ class Hub:
     async def refresh_today(self) -> None:
         try:
             today = await self._query_one("SELECT * FROM app_today")
-            savings = await self._query_one("SELECT * FROM app_battery_savings_today")
+            old_savings = (self.today or {}).get("savings")
+            if old_savings is None or time.monotonic() - self.savings_read_at >= SAVINGS_INTERVAL:
+                savings = await self._query_one("SELECT * FROM app_battery_savings_today")
+                self.savings_read_at = time.monotonic()
+            else:
+                savings = old_savings
             self.today = {"ok": True, "data": today, "savings": savings,
                           "forecast": await self._read_forecast()}
             self.last_ok = time.monotonic()
@@ -245,9 +255,9 @@ class Hub:
 
     async def read_contracts(self) -> dict:
         """The Contracten page, from app_contracts(); contracts change rarely, so at most every
-        MONEY_INTERVAL × 5 seconds (5 minutes by default)."""
+        5 minutes (or MONEY_INTERVAL, when that is longer)."""
         async with self.lock:
-            if self.contracts and self.contracts["ok"] and time.monotonic() - self.contracts_read_at < MONEY_INTERVAL * 5:
+            if self.contracts and self.contracts["ok"] and time.monotonic() - self.contracts_read_at < max(300, MONEY_INTERVAL):
                 return self.contracts
             try:
                 row = await self._query_one("SELECT app_contracts() AS c")

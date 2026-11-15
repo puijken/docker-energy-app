@@ -132,7 +132,8 @@ All settings come from the environment. None of them is secret except the databa
 | `LIVE_INTERVAL` | `5` | seconds between live reads |
 | `TODAY_INTERVAL` | `60` | seconds between reads of the day views |
 | `BATTERY_PRICE_EUR` | (empty) | what the battery cost, for the payback bar on Geld; no bar when unset |
-| `MONEY_INTERVAL` | `60` | the Geld and Meer data are re-read at most this often |
+| `MONEY_INTERVAL` | `300` | the Geld and Meer data are re-read at most this often (they move slowly; `app_money` costs ~0.3 s) |
+| `SAVINGS_INTERVAL` | `300` | Thuis' "bespaard door de batterij" (~0.2 s per read) is re-read at most this often; the other day figures follow `TODAY_INTERVAL` |
 | `HISTORY_MAX_AGE` | `300` | seconds a Historie answer is kept (60 for a period that is still running) |
 | `BATTERY_INTERVAL` | `60` | the Batterij screen's data is re-read at most this often (only while a screen asks for it) |
 | `PLUG_LABELS` | (empty) | display names, `source=Label,...`; also the plugs the status sheet expects |
