@@ -151,12 +151,12 @@ SELECT CASE WHEN empty THEN jsonb_build_object('savings', jsonb_build_object('da
 ELSE jsonb_build_object(
     'savings', jsonb_build_object('today_eur', 0.40, 'month_eur', 1.41, 'total_eur', 1.41, 'days', 3,
                                   'since', '2026-03-02T10:30:00+01:00'::timestamptz, 'filled_at', now() - interval '20 minutes'),
-    'bill_month', jsonb_build_object('days', 14, 'net_eur', 120.0, 'import_eur', 50.0, 'export_eur', 6.06, 'gas_eur', 70.0,
-                                     'fixed_eur', 5.67, 'import_kwh', 170.0, 'export_kwh', 22.3, 'gas_m3', 46.3),
+    'bill_month', jsonb_build_object('days', 14, 'net_eur', 120.0, 'import_eur', 50.0, 'export_eur', 6.0, 'gas_eur', 70.0,
+                                     'fixed_eur', 6.0, 'import_kwh', 170.0, 'export_kwh', 20.0, 'gas_m3', 50.0),
     'bill_year', jsonb_build_object('days', 318, 'net_eur', 1010.0, 'import_eur', 800.0, 'export_eur', 600.0, 'gas_eur', 650.0,
-                                    'fixed_eur', 160.0, 'import_kwh', 3000.0, 'export_kwh', 3000.0, 'gas_m3', 530.0),
+                                    'fixed_eur', 160.0, 'import_kwh', 3000.0, 'export_kwh', 3000.0, 'gas_m3', 500.0),
     'bill_2027', jsonb_build_object('days', 318, 'real_eur', 1010.0, 'import_eur', 900.0, 'export_eur', 30.0, 'gas_eur', 700.0,
-                                    'fixed_eur', 160.0, 'net_eur', 1730.5, 'import_kwh', 3000.0, 'export_kwh', 3000.0, 'gas_m3', 530.0,
+                                    'fixed_eur', 160.0, 'net_eur', 1730.5, 'import_kwh', 3000.0, 'export_kwh', 3000.0, 'gas_m3', 500.0,
                                     'p_import', 0.30, 'p_feedin', 0.05, 'p_feedin_cost', 0.04, 'p_gas', 1.40, 'p_fixed', 0.50),
     'year_start', date_trunc('year', now()))
 END FROM smoke_mode;
@@ -168,16 +168,16 @@ CREATE FUNCTION app_contracts() RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFIN
 SELECT jsonb_build_object('today', current_date, 'contracts', CASE WHEN empty THEN '[]'::jsonb ELSE jsonb_build_array(
     jsonb_build_object('id', 2, 'name', 'Leverancier B', 'start', '2026-03-01', 'end', '2026-12-31', 'kind', 'stroom en gas', 'status', 'lopend',
         'p_normal', 0.30, 'p_low', 0.30, 'f_normal', 0.05, 'f_low', 0.05, 'p_gas', 1.40, 'p_fixed', 0.50,
-        'feedin_bands', true, 'feedin_cost_per_kwh', NULL, 'el_days', 68, 'gas_days', 68, 'days', 68,
+        'feedin_bands', true, 'feedin_cost_per_kwh', NULL, 'el_days', 258, 'gas_days', 258, 'days', 258,
         'first_day', '2026-03-01T00:00:00+01:00', 'last_day', '2026-11-14T00:00:00+01:00',
-        'import_kwh', 600.0, 'export_kwh', 120.0, 'import_eur', 600.0, 'export_eur', 110.0, 'gas_m3', 95.0, 'gas_eur', 420.0,
-        'fixed_eur', 129.0, 'net_eur', 1039.0, 'generated_kwh', 450.0, 'consumption_kwh', 930.0, 'self_sufficiency', 0.355, 'salderen', true),
+        'import_kwh', 2000.0, 'export_kwh', 2200.0, 'import_eur', 600.0, 'export_eur', 110.0, 'gas_m3', 300.0, 'gas_eur', 420.0,
+        'fixed_eur', 129.0, 'net_eur', 1039.0, 'generated_kwh', 4800.0, 'consumption_kwh', 4600.0, 'self_sufficiency', 0.52, 'salderen', true),
     jsonb_build_object('id', 1, 'name', 'Leverancier A', 'start', '2025-03-01', 'end', '2026-03-01', 'kind', 'stroom en gas', 'status', 'afgelopen',
         'p_normal', 0.25, 'p_low', 0.25, 'f_normal', 0.03, 'f_low', 0.03, 'p_gas', 1.20, 'p_fixed', 0.70,
-        'feedin_bands', true, 'feedin_cost_per_kwh', NULL, 'el_days', 372, 'gas_days', 372, 'days', 372,
+        'feedin_bands', true, 'feedin_cost_per_kwh', NULL, 'el_days', 365, 'gas_days', 365, 'days', 365,
         'first_day', '2025-03-01T00:00:00+01:00', 'last_day', '2026-02-28T00:00:00+01:00',
         'import_kwh', 4000.0, 'export_kwh', 3000.0, 'import_eur', 1000.0, 'export_eur', 90.0, 'gas_m3', 700.0, 'gas_eur', 840.0,
-        'fixed_eur', 255.5, 'net_eur', 2005.5, 'generated_kwh', 5500.0, 'consumption_kwh', 6500.0, 'self_sufficiency', 0.35, 'salderen', true)) END)
+        'fixed_eur', 255.5, 'net_eur', 2005.5, 'generated_kwh', 5500.0, 'consumption_kwh', 6500.0, 'self_sufficiency', 0.38, 'salderen', true)) END)
 FROM smoke_mode;
 $f$;
 GRANT EXECUTE ON FUNCTION app_contracts() TO energy_app;

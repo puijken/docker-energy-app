@@ -576,7 +576,7 @@ const SHEETS = {
       ["Berekening", "per dag: rekening zonder batterij − rekening met batterij, met de prijzen van 2027; zonder batterij = verbruik − de zon zoals je vorige omvormer die had geleverd (gemeten rendement). Daarom “berekend” en “≈”."],
       ["Vandaag", sv ? `≈ ${eur(sv.today_eur)}` : "—"],
       ["Deze maand", sv ? `≈ ${eur(sv.month_eur)}` : "—"],
-      ["Sinds installatie", sv ? `≈ ${eur(sv.total_eur)} over ${sv.days} dagen (vanaf 1 mrt 2026, 10:30)` : "—"],
+      ["Sinds installatie", sv ? `≈ ${eur(sv.total_eur)} over ${sv.days} dagen${sv.since ? ` (vanaf ${new Date(sv.since).toLocaleString("nl-NL", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: TZ })})` : ""}` : "—"],
       price && ["Terugverdienen", `tegen ${eur0(price)}, de aanschafprijs (instelling BATTERY_PRICE_EUR)`],
       ["Periode", sv?.filled_at ? `vandaag live; eerdere dagen elk uur berekend, laatst om ${hm(sv.filled_at)}` : "vandaag live; de eerdere dagen worden nog niet berekend (de dagtaak in de database staat nog niet aan), dus tellen alleen vandaag"],
       ["Bron", "slimme meter, thuisbatterij, contractprijzen 2027"],
