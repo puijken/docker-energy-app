@@ -65,8 +65,23 @@ new contract still happens in the source (see the deployment notes).
 - **Rendement per vermogen:** per power band over the last 30 days, which share comes out on the other
   side for each path (sun → battery + house, battery → house, socket → battery, sun → house).
 
-The screens switch by the address's `#hash` (`#batterij`); the Batterij data is fetched only while
-that screen is open.
+### Meer
+
+- **Basislast:** the house's mean power between 01:00 and 05:00, last night and as the median of the
+  last 30 nights (and the same 30 nights a year earlier), with a bar per night for the last 60.
+  Nights with the car charging at home are greyed and left out: the charger counts as house use.
+- **Stekkers:** per plug, kWh today and its mean power last night, plus what was left for the rest of
+  the house that night.
+- **Auto:** this year's charging at home, at work and on the road (kWh, sessions, own-solar share,
+  what the charge card billed), what charging at home netted (reimbursed − real cost) and the last
+  session; a note when the latest odometer reading is more than 90 days old.
+- **Status:** every source with when it last reported: the live ones from Thuis plus the
+  background ones (charge-card sessions, daily weather means, the database's scheduled jobs, the
+  latest odometer reading), and the warnings.
+- **Uitleg:** a glossary of the terms the app uses, and links (contracts, wall view, Grafana).
+
+The screens switch by the address's `#hash` (`#batterij`, `#meer`); each screen's data is fetched only
+while that screen is open.
 
 ## How it works
 
@@ -94,6 +109,7 @@ that screen is open.
 | `app_battery_efficiency` | nine | per power band (`band`, `label`): out ÷ in for `solar`, `battery`, `socket`, `direct`; null when there are too few readings |
 | `app_history(unit, date)` | function → JSON | Historie: the day, week, month or year containing `date`: `start`, `end`, `buckets` and `ly_buckets` (per hour for a day, per day, or per month for a year), `totals` and `ly_totals` (energy, money, gas, degree days and the ratios), `running`, `first_day` |
 | `app_money()` | function → JSON | Geld: `savings` (`today_eur`, `month_eur`, `total_eur`, `days`, `since`, `filled_at`), `bill_month` and `bill_year` (net and parts), `bill_2027` (this year at the 2027 rules: parts, `net_eur`, `real_eur`, prices) |
+| `app_meer()` | function → JSON | Meer: `usage` (`nights[]` with `night`, `w`, `car`; `last`; `median_30`, `n_30`, `ly_median_30`; `plugs[]` with `name`, `today_kwh`, `night_w`), `car` (`year_start`, `places[]` with `kind` home/work/public, `sessions`, `kwh`, `solar_kwh`, `reimbursed_eur`, `real_cost_eur`, `billed_eur`; `net_eur`, `last_session`, `reading_day`), `status` (`monta_fetched`, `knmi_fetched`, `knmi_day`, `reading_day`, `jobs_total`, `jobs_failed[]`, `jobs_last_ok`) |
 | `app_contracts()` | function → JSON | Contracten: `contracts[]` with `id`, `name`, `start`, `end`, `kind`, `status`, prices (`p_normal`, `p_low`, `f_normal`, `f_low`, `p_gas`, `p_fixed`), `feedin_bands`, `feedin_cost_per_kwh`, `salderen`, and the term's `days`, kWh, m³, cost parts, `net_eur`, `generated_kwh`, `consumption_kwh`, `self_sufficiency` |
 | `app_forecast` | zero or one | solar forecast: `fetched_at`, `today_kwh`, `rest_today_kwh` (now → midnight), `tomorrow_kwh`, `tomorrow_hours` (24 when tomorrow is complete). Optional: when it is missing or fails, the rest of the screen works and the card shows “—” |
 
@@ -112,11 +128,11 @@ All settings come from the environment. None of them is secret except the databa
 | `LIVE_INTERVAL` | `5` | seconds between live reads |
 | `TODAY_INTERVAL` | `60` | seconds between reads of the day views |
 | `BATTERY_PRICE_EUR` | (empty) | what the battery cost, for the payback bar on Geld; no bar when unset |
-| `MONEY_INTERVAL` | `60` | the Geld data is re-read at most this often |
+| `MONEY_INTERVAL` | `60` | the Geld and Meer data are re-read at most this often |
 | `HISTORY_MAX_AGE` | `300` | seconds a Historie answer is kept (60 for a period that is still running) |
 | `BATTERY_INTERVAL` | `60` | the Batterij screen's data is re-read at most this often (only while a screen asks for it) |
 | `PLUG_LABELS` | (empty) | display names, `source=Label,...`; also the plugs the status sheet expects |
-| `LINK_DAY`, `LINK_PERIOD`, `LINK_MONEY`, `LINK_BATTERY`, `LINK_PLUGS`, `LINK_TECH` | (empty) | Grafana links per card and tab; a missing link hides it |
+| `LINK_DAY`, `LINK_PERIOD`, `LINK_MONEY`, `LINK_BATTERY`, `LINK_PLUGS`, `LINK_TECH`, `LINK_CAR` | (empty) | Grafana links per card and tab; a missing link hides it |
 | `FORECAST_PLANES`, `FORECAST_LOCATION`, `FORECAST_ACCURACY` | (empty) | extra lines on the forecast's info sheet: the roof planes, the location sent to the forecast service, how accurate it was when tested; each is left out when unset |
 | `TZ` | `Europe/Amsterdam` | time zone for clocks and labels |
 | `PORT` | `8080` | listening port |
@@ -151,7 +167,7 @@ ALTER ROLE energy_app SET statement_timeout = '5s';
 GRANT USAGE ON SCHEMA public TO energy_app;
 GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
                 app_battery_soc_today, app_battery_summary, app_battery_efficiency TO energy_app;
-GRANT EXECUTE ON FUNCTION app_history(text, date), app_money(), app_contracts() TO energy_app;
+GRANT EXECUTE ON FUNCTION app_history(text, date), app_money(), app_contracts(), app_meer() TO energy_app;
 -- then set its password by hand, not in a file you commit
 ```
 
@@ -165,6 +181,7 @@ GRANT EXECUTE ON FUNCTION app_history(text, date), app_money(), app_contracts() 
 | `/api/history?unit=day\|week\|month\|year&date=YYYY-MM-DD` | the Historie screen for that period (400 for another unit or a bad date) |
 | `/api/contracts` | the Contracten page (re-read at most every 5 minutes) |
 | `/api/money` | the Geld screen (re-read at most every `MONEY_INTERVAL` seconds) |
+| `/api/meer` | the Meer screen (re-read at most every `MONEY_INTERVAL` seconds) |
 | `/api/battery` | the Batterij screen: today's charge level, the summary row, efficiency per band, the day's start and end (re-read at most every `BATTERY_INTERVAL` seconds) |
 | `/api/config` | links, plug labels, intervals, time zone |
 | `/healthz` | 200 when the database answers, 503 otherwise (used by the image's `HEALTHCHECK`) |

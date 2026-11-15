@@ -3,8 +3,8 @@
 It shows what the house is doing now and how today went, from a TimescaleDB that another service
 fills. It never talks to a device and never writes: it connects with a read-only database role and
 reads views only (app_live, app_today, app_battery_savings_today, app_forecast, app_battery_* for
-the Batterij screen) and three read-only functions (app_history for Historie, app_money for Geld,
-app_contracts for Contracten). All calculation rules live in those views, so the numbers match whatever else
+the Batterij screen) and four read-only functions (app_history for Historie, app_money for Geld,
+app_contracts for Contracten, app_meer for Meer). All calculation rules live in those views, so the numbers match whatever else
 reads the same database.
 
 One reader serves every open screen: a background task reads the live view every LIVE_INTERVAL
@@ -76,7 +76,7 @@ def parse_labels(raw: str) -> dict:
 def client_config() -> dict:
     """Site-specific settings for the page, all from the environment (none are secret)."""
     links = {}
-    for key in ("day", "period", "battery", "money", "plugs", "tech"):
+    for key in ("day", "period", "battery", "money", "plugs", "tech", "car"):
         url = os.environ.get(f"LINK_{key.upper()}", "").strip()
         if url:
             links[key] = url
@@ -128,6 +128,8 @@ class Hub:
         self.money_read_at = 0.0
         self.contracts: dict | None = None
         self.contracts_read_at = 0.0
+        self.meer: dict | None = None
+        self.meer_read_at = 0.0
         self.last_ok = 0.0
         self.last_error: str | None = None
         self.lock = asyncio.Lock()
@@ -252,6 +254,21 @@ class Hub:
             self.contracts_read_at = time.monotonic()
             return self.contracts
 
+    async def read_meer(self) -> dict:
+        """The Meer screen (base load, plugs today, car this year, source status), from app_meer(),
+        at most every MONEY_INTERVAL seconds."""
+        async with self.lock:
+            if self.meer and self.meer["ok"] and time.monotonic() - self.meer_read_at < MONEY_INTERVAL:
+                return self.meer
+            try:
+                row = await self._query_one("SELECT app_meer() AS m")
+                self.meer = {"ok": True, "data": row["m"] if row else None}
+            except Exception as exc:
+                log.warning("meer read failed: %s: %s", type(exc).__name__, exc)
+                self.meer = {"ok": False, "data": (self.meer or {}).get("data")}
+            self.meer_read_at = time.monotonic()
+            return self.meer
+
     async def ensure_fresh(self, kind: str) -> None:
         """For plain API calls: re-read only when the cached value is older than API_MIN_AGE."""
         async with self.lock:
@@ -352,6 +369,10 @@ async def api_contracts(request: Request) -> Response:
     return Response(to_json(await hub.read_contracts()), media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
+async def api_meer(request: Request) -> Response:
+    return Response(to_json(await hub.read_meer()), media_type="application/json", headers={"Cache-Control": "no-store"})
+
+
 async def api_stream(request: Request) -> Response:
     queue: asyncio.Queue = asyncio.Queue(maxsize=8)
 
@@ -419,6 +440,7 @@ routes = [
     Route("/api/history", api_history),
     Route("/api/money", api_money),
     Route("/api/contracts", api_contracts),
+    Route("/api/meer", api_meer),
     Route("/api/stream", api_stream),
     Route("/healthz", healthz),
     Route("/manifest.webmanifest", manifest),

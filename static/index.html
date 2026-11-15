@@ -197,6 +197,61 @@
     </section>
   </main>
 
+  <!-- Meer: base load and plugs, the car this year, every source's status, a glossary and links (app_meer, 033). -->
+  <main class="cols" id="scr-meer" hidden>
+    <div class="main-col">
+      <section class="card" aria-labelledby="h-mverb">
+        <h2 id="h-mverb">Basislast <em>01:00 – 05:00</em></h2>
+        <div class="kpis">
+          <button type="button" class="kpi" data-sheet="mbasis"><span class="l">Vannacht</span><span class="val" data-v="m-last">—</span><span class="sub" data-v="m-last-sub"></span></button>
+          <button type="button" class="kpi" data-sheet="mbasis"><span class="l">Gewoonlijk</span><span class="val" data-v="m-med">—</span><span class="sub" data-v="m-med-sub"></span></button>
+        </div>
+        <button type="button" class="chart" data-sheet="mbasis" aria-label="Basislast per nacht, laatste 60 nachten" data-mchart></button>
+        <p class="legend"><span><i class="sq" style="--c:var(--huis)"></i>per nacht</span><span><i class="sq" style="--c:var(--ref)"></i>auto laadde thuis</span><span><i class="ln dash" style="border-top-color:var(--fg)"></i>gewoonlijk</span></p>
+      </section>
+
+      <section class="card" aria-labelledby="h-mstek">
+        <h2 id="h-mstek">Stekkers <em>vandaag · vannacht</em></h2>
+        <table class="t27 tplugs"><thead><tr><th></th><th>vandaag</th><th>vannacht</th></tr></thead><tbody data-mplugs></tbody></table>
+        <a class="more" data-link="plugs" hidden>Stekkers in Grafana ›</a>
+      </section>
+
+      <section class="card" aria-labelledby="h-mauto">
+        <h2 id="h-mauto">Auto <em data-v="m-car-period">dit jaar</em></h2>
+        <div class="kpis kpis3">
+          <button type="button" class="kpi" data-sheet="mauto"><span class="l">Thuis</span><span class="val" data-v="m-home">—</span><span class="sub" data-v="m-home-sub"></span></button>
+          <button type="button" class="kpi" data-sheet="mauto"><span class="l">Werk</span><span class="val" data-v="m-work">—</span><span class="sub" data-v="m-work-sub"></span></button>
+          <button type="button" class="kpi" data-sheet="mauto"><span class="l">Onderweg</span><span class="val" data-v="m-public">—</span><span class="sub" data-v="m-public-sub"></span></button>
+        </div>
+        <div class="kpis">
+          <button type="button" class="kpi" data-sheet="mauto"><span class="l">Thuis laden: vergoed − kosten</span><span class="val" data-v="m-net">—</span><span class="sub" data-v="m-net-sub"></span></button>
+          <button type="button" class="kpi" data-sheet="mauto"><span class="l">Laatste laadbeurt</span><span class="val small" data-v="m-lastses">—</span><span class="sub" data-v="m-lastses-sub"></span></button>
+        </div>
+        <p class="note" data-mreading hidden></p>
+        <a class="more" data-link="car" hidden>Auto in Grafana ›</a>
+      </section>
+    </div>
+
+    <div class="side">
+      <section class="card" aria-labelledby="h-mstat">
+        <h2 id="h-mstat">Status <em data-v="m-stat-sum"></em></h2>
+        <dl class="srcs" data-msrc></dl>
+        <ul class="warns" data-mwarn hidden></ul>
+        <a class="more" data-link="tech" hidden>Techniek in Grafana ›</a>
+      </section>
+
+      <section class="card" aria-labelledby="h-muitleg">
+        <h2 id="h-muitleg">Uitleg</h2>
+        <div class="gloss" data-mgloss></div>
+      </section>
+
+      <section class="card" aria-labelledby="h-mlinks">
+        <h2 id="h-mlinks">Ook</h2>
+        <ul class="mlinks" data-mlinks></ul>
+      </section>
+    </div>
+  </main>
+
   <!-- Batterij: today's charge level, counters, efficiency per power band and health (app_battery_*, 025). -->
   <main class="cols" id="scr-batterij" hidden>
     <div class="side">
