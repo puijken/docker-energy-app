@@ -189,7 +189,7 @@ SELECT CASE WHEN empty THEN jsonb_build_object(
     'usage', jsonb_build_object('nights', '[]'::jsonb, 'last', NULL, 'median_30', NULL, 'n_30', 0, 'ly_median_30', NULL, 'plugs', '[]'::jsonb),
     'car', jsonb_build_object('year_start', date_trunc('year', now()), 'places', '[]'::jsonb, 'net_eur', NULL, 'last_session', NULL, 'reading_day', NULL),
     'status', jsonb_build_object('monta_fetched', NULL, 'knmi_fetched', NULL, 'knmi_day', NULL, 'reading_day', NULL,
-                                 'jobs_total', 0, 'jobs_failed', '[]'::jsonb, 'jobs_last_ok', NULL))
+                                 'jobs_total', 0, 'jobs_failed', '[]'::jsonb, 'jobs_last_ok', NULL, 'uploads', '{}'::jsonb))
 ELSE jsonb_build_object(
     'usage', jsonb_build_object(
         'nights', (SELECT jsonb_agg(jsonb_build_object('night', current_date - i, 'w', CASE WHEN i % 7 = 3 THEN 2000 ELSE 380 + (i % 5) * 10 END,
@@ -207,7 +207,11 @@ ELSE jsonb_build_object(
         'reading_day', current_date - 20),
     'status', jsonb_build_object('monta_fetched', now() - interval '3 hours', 'knmi_fetched', now() - interval '5 hours',
                                  'knmi_day', current_date - 3, 'reading_day', current_date - 20,
-                                 'jobs_total', 15, 'jobs_failed', '[]'::jsonb, 'jobs_last_ok', now() - interval '10 minutes'))
+                                 'jobs_total', 15, 'jobs_failed', '[]'::jsonb, 'jobs_last_ok', now() - interval '10 minutes',
+                                 'uploads', jsonb_build_object(
+                                     'pvoutput', jsonb_build_object('last_attempt', now() - interval '2 minutes', 'last_ok', now() - interval '2 minutes', 'last_error', NULL, 'detail', NULL),
+                                     'mindergas', jsonb_build_object('last_attempt', now() - interval '12 hours', 'last_ok', now() - interval '12 hours', 'last_error', NULL, 'detail', 'gisteren: 1234.567 m3'),
+                                     'monta', jsonb_build_object('last_attempt', now() - interval '1 hour', 'last_ok', now() - interval '25 hours', 'last_error', 'made-up timeout', 'detail', '2 session(s)'))))
 END
 FROM smoke_mode;
 $f$;
