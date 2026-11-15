@@ -620,6 +620,19 @@ const SHEETS = {
   hnet() { return histSheet("Afgenomen · teruggeleverd", "import_kwh", "kWh", "Stroom van en naar het net.", "standen van de slimme meter, normaal- en daltarief samen", "slimme meter", "export_kwh"); },
   hrekening() { return histSheet("Energierekening", "net_eur", "€", "Wat deze periode kostte volgens je energiecontracten.", "stroomkosten − terugleververgoeding + gaskosten + vaste kosten, met de prijzen van het contract dat toen gold en salderen per afrekenperiode (tot en met 2026). Terugleverkosten tellen nog niet mee.", "meterstanden en de contractprijzen uit DSMR-reader"); },
   hgas() { return histSheet("Gas", "gas_m3", "m³", "Gasverbruik.", "standen van de gasmeter per dag", "gasmeter via de slimme meter"); },
+  hsoc() {
+    const s = state.hist.data?.soc;
+    const r = s?.ranges || [], pts = (s?.points || []).map((p) => p.soc).filter(isNum);
+    const lo = s?.unit === "day" ? Math.min(...pts) : Math.min(...r.map((x) => x.min)), hi = s?.unit === "day" ? Math.max(...pts) : Math.max(...r.map((x) => x.max));
+    const has = Number.isFinite(lo) && Number.isFinite(hi);
+    return { title: `Laadniveau batterij · ${has ? `${fmt[0].format(lo)}–${fmt[0].format(hi)}%` : "—"}`, body: rows([
+      ["Wat", "Hoe vol de batterij was in deze periode."],
+      ["Grafiek", s?.unit === "day" ? "het laadniveau per 5 minuten, met de onder- en bovengrens gestippeld" : `per ${s?.unit === "year" ? "maand" : "dag"} een balk van het laagste tot het hoogste laadniveau: raakte de batterij vol, en kwam hij bij de ondergrens?`],
+      ["Kleuren", "groen vanaf 50 %, oranje van 20 tot 50 %, rood onder 20 %"],
+      ["Periode", s?.first ? `metingen sinds ${dmyTs(s.first)}` : "—"],
+      ["Bron", "thuisbatterij"],
+    ]) + link("battery", "Batterij in Grafana") };
+  },
   hgraad() { return histSheet("Graaddagen", "degree_days", "", "Hoe koud het was, zo gerekend dat het past bij hoeveel dit huis stookt. Twee keer zoveel graaddagen betekent ongeveer twee keer zoveel gas voor verwarming.", "per dag max(17 °C − daggemiddelde buiten, 0) × 1,1 (nov–feb), × 1,0 (mrt, okt) of × 0,8 (apr–sep): gewogen graaddagen op een basis van 17 °C. Waarom 17: over 5½ jaar gasverbruik van dit huis past dit het best (beter dan 18 °C, en beter dan ongewogen); met ongeveer 20,5 °C binnen leveren zon, mensen en apparaten de rest. Mindergas rekent met 20,5 °C binnen en een stookgrens van 18 °C en telt daardoor meer graaddagen (oktober 2026: ≈ 258 tegen 149 hier). KNMI levert de daggemiddelden een of twee dagen later; tot dan staat een dag zonder graaddagen.", "KNMI, meetstation Westdorpe (gemeten daggemiddelde)"); },
   hgpg() { return histSheet("Gas per graaddag", "gas_per_degree_day", "m³", "Gas gedeeld door graaddagen: zo zie je of je zuiniger stookt, los van of het een koude of zachte periode was. Een lagere thermostaat of betere isolatie geeft een lager getal.", "gas op dagen met een graaddagwaarde ÷ graaddagen; pas vanaf 5 graaddagen (anders “—”). Gas voor warm water en koken telt ook mee (ongeveer 0,2 m³ per dag), dus in de zomer is dit getal hoog.", "gasmeter en KNMI (Westdorpe)"); },
   temperatuur() {
@@ -839,6 +852,45 @@ function slotLabel(h, i) {
   return String(new Date(Date.UTC(y, m - 1, d + i)).getUTCDate());
 }
 
+// The battery's charge level over a week, month or year: per day (per month for a year) a bar from
+// the lowest to the highest level, coloured by height like the Batterij chart (socColor).
+function socRangeChart(h, ranges, width) {
+  const n = slotCount(h);
+  const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(200, Math.max(150, W * 0.3)));
+  const L = 38, R = 6, T = 10, B = 24;
+  const y = (v) => T + (1 - v / 100) * (H - T - B);
+  const slotW = (W - L - R) / n, cx = (i) => L + slotW * (i + 0.5);
+  const bw = Math.max(3, Math.min(18, slotW * 0.55));
+  const grid = [0, 25, 50, 75, 100].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="g"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="ax">${v}%</text>`).join("");
+  const every = h.bucket === "month" ? (W < 420 ? 2 : 1) : h.unit === "week" ? 1 : W < 420 ? 7 : 5;
+  const ticks = Array.from({ length: n }, (_, i) => i).filter((i) => h.unit === "month" ? (i === 0 || (i + 1) % every === 0) : i % every === 0)
+    .map((i) => `<text x="${cx(i)}" y="${H - 6}" text-anchor="middle" class="ax">${slotLabel(h, i)}</text>`).join("");
+  const off = (v) => ((1 - v / 100) * 100).toFixed(1);
+  const st = (o, c) => `<stop offset="${o}%" stop-color="var(${c})"/>`;
+  const grad = `<linearGradient id="hsocg" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="${y(100)}" y2="${y(0)}">${st(0, "--ok")}${st(off(SOC_GREEN), "--ok")}${st(off(SOC_GREEN), "--warn")}${st(off(SOC_RED), "--warn")}${st(off(SOC_RED), "--bad")}${st(100, "--bad")}</linearGradient>`;
+  const bars = ranges.map((r) => {
+    const i = slotOf(h, r.t, h.start);
+    if (i < 0 || i >= n || !isNum(r.min) || !isNum(r.max)) return "";
+    const top = y(r.max), hgt = Math.max(3, y(r.min) - top);   // a day at one level still shows a stub
+    return `<rect x="${(cx(i) - bw / 2).toFixed(1)}" y="${(top - (hgt === 3 ? 1.5 : 0)).toFixed(1)}" width="${bw.toFixed(1)}" height="${hgt.toFixed(1)}" rx="${Math.min(4, bw / 3).toFixed(1)}" fill="url(#hsocg)"><title>${slotLabel(h, i)}: ${fmt[0].format(r.min)}–${fmt[0].format(r.max)}%</title></rect>`;
+  }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" role="img"><defs>${grad}</defs>${grid}${bars}${ticks}</svg>`;
+}
+
+function renderHistSoc(h) {
+  const box = $("[data-hsoc]");
+  if (!box) return;
+  const s = h?.soc;
+  const hasDay = s?.unit === "day" && s.points?.length, hasRange = s && s.unit !== "day" && s.ranges?.length;
+  setV("h-soc-sub", s?.unit === "day" ? "per 5 minuten" : s?.unit === "year" ? "laagste – hoogste per maand" : "laagste – hoogste per dag");
+  if (hasDay) box.innerHTML = socChart(s.points, s.start, s.end, box.clientWidth);
+  else if (hasRange) box.innerHTML = socRangeChart(h, s.ranges, box.clientWidth);
+  else {
+    const before = s?.first && new Date(s.end) <= new Date(s.first);
+    box.innerHTML = `<p class="empty">${!s ? "—" : before ? `Geen batterijgegevens: de metingen beginnen op ${dmyTs(s.first)}.` : "Geen batterijgegevens in deze periode."}</p>`;
+  }
+}
+
 // Bars for this period, last year's same period as a grey line with dots.
 function histChart(h, key, color, width, digits) {
   const n = slotCount(h);
@@ -908,6 +960,7 @@ function renderHistory() {
     const box = $(sel);
     if (box) box.innerHTML = h ? histChart(h, key, color, box.clientWidth, digits) : "";
   }
+  renderHistSoc(h);
   const a = $("[data-hlink]");
   if (a) {
     // a day opens Grafana's Dag dashboard, longer periods Periode
@@ -1222,6 +1275,7 @@ const EFF_PATHS = [
 
 // Charge level over today as an SVG line: 00:00 – 24:00 on x (23 or 25 hours on a clock change
 // day), 0 – 100 % on y, the two limits as dashed steps. A gap of more than 15 minutes breaks the line.
+let socChartSeq = 0;
 function socChart(rows, dayStart, dayEnd, width) {
   // drawn at the card's own width, so the 12 px labels stay 12 px on a phone
   const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(240, Math.max(170, W * 0.36)));
@@ -1229,6 +1283,8 @@ function socChart(rows, dayStart, dayEnd, width) {
   const t0 = new Date(dayStart).getTime(), t1 = new Date(dayEnd).getTime();
   const x = (t) => L + ((new Date(t).getTime() - t0) / (t1 - t0)) * (W - L - R);
   const y = (v) => T + (1 - v / 100) * (H - T - B);
+  // own gradient ids per drawing: Batterij and Historie can both hold one, at different heights
+  const gid = `soc${++socChartSeq}`;
   const grid = [0, 25, 50, 75, 100].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="g"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="ax">${v}%</text>`).join("");
   const hours = Math.round((t1 - t0) / 3600000);
   const ticks = [0, 6, 12, 18, hours].map((h) => `<text x="${x(t0 + h * 3600000)}" y="${H - 6}" text-anchor="${h === 0 ? "start" : h === hours ? "end" : "middle"}" class="ax">${String(h === hours ? 24 : h).padStart(2, "0")}:00</text>`).join("");
@@ -1264,11 +1320,11 @@ function socChart(rows, dayStart, dayEnd, width) {
   const dot = soc.last ? `<circle cx="${soc.last[0]}" cy="${soc.last[1]}" r="4" fill="var(${socColor(lastSoc)})" stroke="var(--card)" stroke-width="2"/>` : "";
   const empty = rows.length ? "" : `<text x="${(L + W - R) / 2}" y="${y(50)}" text-anchor="middle" class="ax">—: nog geen metingen vandaag</text>`;
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Laadniveau vandaag">
-    <defs>${grad("socline", 1, 1)}<linearGradient id="socfill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--muted)" stop-opacity=".16"/><stop offset="1" stop-color="var(--muted)" stop-opacity=".02"/></linearGradient></defs>
+    <defs>${grad(`${gid}l`, 1, 1)}<linearGradient id="${gid}f" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--muted)" stop-opacity=".16"/><stop offset="1" stop-color="var(--muted)" stop-opacity=".02"/></linearGradient></defs>
     ${grid}${ticks}
-    <path d="${area}" fill="url(#socfill)"/>
+    <path d="${area}" fill="url(#${gid}f)"/>
     <path d="${up.d}" class="lim-line"/><path d="${low.d}" class="lim-line"/>
-    <path d="${soc.d}" fill="none" stroke="url(#socline)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="${soc.d}" fill="none" stroke="url(#${gid}l)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
     ${dot}${empty}
   </svg>`;
 }

@@ -215,8 +215,12 @@ class Hub:
         if hit and now - hit[0] < max_age:
             return hit[1]
         try:
-            row = await self._query_one("SELECT app_history(%(u)s, %(a)s) AS h", {"u": unit, "a": anchor})
-            result = {"ok": True, "data": row["h"] if row else None}
+            row = await self._query_one("SELECT app_history(%(u)s, %(a)s) AS h, app_history_soc(%(u)s, %(a)s) AS s",
+                                        {"u": unit, "a": anchor})
+            data = row["h"] if row else None
+            if data is not None:
+                data["soc"] = row["s"]   # the battery's charge level for the same period (035)
+            result = {"ok": True, "data": data}
         except Exception as exc:
             log.warning("history read failed: %s: %s", type(exc).__name__, exc)
             return {"ok": False, "data": hit[1]["data"] if hit else None}
