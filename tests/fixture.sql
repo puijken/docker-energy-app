@@ -143,6 +143,23 @@ FROM p, m;
 $f$;
 GRANT EXECUTE ON FUNCTION app_history(text, date) TO energy_app;
 
+-- The battery's charge level for the same period, the shape of the real app_history_soc(): a day
+-- has 5-minute points, longer periods a made-up 30-90 % range per day (per month for a year).
+CREATE FUNCTION app_history_soc(p_unit text, p_anchor date) RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS $f$
+WITH p AS (
+    SELECT p_unit AS u, s, s + CASE p_unit WHEN 'day' THEN interval '1 day' WHEN 'week' THEN interval '1 week'
+                                           WHEN 'month' THEN interval '1 month' ELSE interval '1 year' END AS e
+    FROM (SELECT date_trunc(p_unit, p_anchor::timestamptz) AS s) x
+), m AS (SELECT empty FROM smoke_mode)
+SELECT jsonb_build_object('unit', u, 'start', s, 'end', e, 'first', CASE WHEN NOT m.empty THEN '2026-01-01T00:00:00+01:00'::timestamptz END,
+    'points', CASE WHEN m.empty OR u <> 'day' THEN '[]'::jsonb ELSE (SELECT jsonb_agg(jsonb_build_object('time', t, 'soc', 60, 'charge_limit_soc', 100, 'discharge_limit_soc', 10) ORDER BY t)
+                                                  FROM generate_series(s, least(e, now()) - interval '5 minutes', interval '5 minutes') AS t) END,
+    'ranges', CASE WHEN m.empty OR u = 'day' THEN '[]'::jsonb ELSE (SELECT jsonb_agg(jsonb_build_object('t', t, 'min', 30, 'max', 90) ORDER BY t)
+                                                  FROM generate_series(s, least(e, now()) - interval '1 hour', CASE u WHEN 'year' THEN interval '1 month' ELSE interval '1 day' END) AS t) END)
+FROM p, m;
+$f$;
+GRANT EXECUTE ON FUNCTION app_history_soc(text, date) TO energy_app;
+
 -- Geld: the same JSON shape as the real app_money(), made-up numbers; savings without the daily
 -- table filled look like this too (filled_at null).
 CREATE FUNCTION app_money() RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS $f$

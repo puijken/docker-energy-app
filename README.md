@@ -34,7 +34,9 @@ card can link to the matching Grafana dashboard.
 One day, week, month or year at a time (‹ › to page back), against the same period last year: totals
 for energy, money and gas with the change, gas per degree day, and bars for generated and used energy
 (per hour for a day, per day for a week or month, per month for a year) with last year as a grey line. While a period is still running, last
-year is counted up to the same day.
+year is counted up to the same day. Below them the battery's charge level for the same period: the
+curve per 5 minutes for a day, and for longer periods a bar from the lowest to the highest level per
+day (per month for a year), coloured by level like the Batterij chart.
 
 ### Geld
 
@@ -109,6 +111,7 @@ while that screen is open.
 | `app_battery_summary` | one (all null without data) | lifetime counters, `rated_kwh`, `full_cycles`, `soh`, temperature now and today's range, today's lowest/highest charge level, `cell_efficiency_30d` and its inputs, `first_reading` |
 | `app_battery_efficiency` | nine | per power band (`band`, `label`): out ÷ in for `solar`, `battery`, `socket`, `direct`; null when there are too few readings |
 | `app_history(unit, date)` | function → JSON | Historie: the day, week, month or year containing `date`: `start`, `end`, `buckets` and `ly_buckets` (per hour for a day, per day, or per month for a year), `totals` and `ly_totals` (energy, money, gas, degree days and the ratios), `running`, `first_day` |
+| `app_history_soc(unit, date)` | function → JSON | Historie's charge-level chart for the same period: `unit`, `start`, `end`, `points[]` for a day (`time`, `soc`, `charge_limit_soc`, `discharge_limit_soc` per 5 minutes), `ranges[]` otherwise (`t`, `min`, `max` per day, per month for a year), `first` (first battery reading). `/api/history` returns it as `soc` |
 | `app_money()` | function → JSON | Geld: `savings` (`today_eur`, `month_eur`, `total_eur`, `days`, `since`, `filled_at`), `bill_month` and `bill_year` (net and parts), `bill_2027` (this year at the 2027 rules: parts, `net_eur`, `real_eur`, prices) |
 | `app_meer()` | function → JSON | Meer: `usage` (`nights[]` with `night`, `w`, `car`; `last`; `median_30`, `n_30`, `ly_median_30`; `plugs[]` with `name`, `today_kwh`, `night_w`), `car` (`year_start`, `places[]` with `kind` home/work/public, `sessions`, `kwh`, `solar_kwh`, `reimbursed_eur`, `real_cost_eur`, `billed_eur`; `net_eur`, `last_session`, `reading_day`), `status` (`monta_fetched`, `knmi_fetched`, `knmi_day`, `reading_day`, `jobs_total`, `jobs_failed[]`, `jobs_last_ok`, `uploads` = per service `last_attempt`, `last_ok`, `last_error`, `detail`) |
 | `app_contracts()` | function → JSON | Contracten: `contracts[]` with `id`, `name`, `start`, `end`, `kind`, `status`, prices (`p_normal`, `p_low`, `f_normal`, `f_low`, `p_gas`, `p_fixed`), `feedin_bands`, `feedin_cost_per_kwh`, `salderen`, and the term's `days`, kWh, m³, cost parts, `net_eur`, `generated_kwh`, `consumption_kwh`, `self_sufficiency` |
@@ -168,7 +171,7 @@ ALTER ROLE energy_app SET statement_timeout = '5s';
 GRANT USAGE ON SCHEMA public TO energy_app;
 GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
                 app_battery_soc_today, app_battery_summary, app_battery_efficiency TO energy_app;
-GRANT EXECUTE ON FUNCTION app_history(text, date), app_money(), app_contracts(), app_meer() TO energy_app;
+GRANT EXECUTE ON FUNCTION app_history(text, date), app_history_soc(text, date), app_money(), app_contracts(), app_meer() TO energy_app;
 -- then set its password by hand, not in a file you commit
 ```
 
