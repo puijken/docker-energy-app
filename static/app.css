@@ -265,3 +265,21 @@ body.walled .shell { display: none; }
 .chip.on { color: var(--eigen); border-color: var(--eigen); }
 @media (max-width: 520px) { .crow { flex-direction: column; } .crow .ctot { text-align: left; } }
 .nw { white-space: nowrap; }
+
+/* Meer: base load chart, plug table, source list, glossary, links */
+.kpi .val.small { font-size: 18px; line-height: 1.3; }
+.tplugs td:first-child, .tplugs th[scope=row] { text-align: left; }
+.tplugs tr.rest th, .tplugs tr.rest td { color: var(--muted); font-style: italic; }
+.srcs { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 4px 0 0; font-size: 13.5px; }
+.srcs dt { color: var(--muted); }
+.srcs dd { margin: 0; font-variant-numeric: tabular-nums; }
+.srcs .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+.warns { margin: 10px 0 0; padding-left: 18px; font-size: 13px; }
+.warns li { margin: 3px 0; }
+.gloss details { border-top: 1px solid var(--line); }
+.gloss details:first-child { border-top: 0; }
+.gloss summary { cursor: pointer; padding: 7px 0; font-weight: 600; font-size: 14px; }
+.gloss summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.gloss p { margin: 0 0 8px; font-size: 13.5px; color: var(--muted); }
+.mlinks { margin: 0; padding-left: 18px; font-size: 14px; }
+.mlinks li { margin: 4px 0; }

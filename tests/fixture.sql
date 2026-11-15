@@ -182,5 +182,36 @@ FROM smoke_mode;
 $f$;
 GRANT EXECUTE ON FUNCTION app_contracts() TO energy_app;
 
+-- Meer: the same JSON shape as the real app_meer(), made-up numbers: 60 nights around 380 W, every
+-- seventh one with the car charging at home (2 kW, left out of the median), two plugs, three places.
+CREATE FUNCTION app_meer() RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS $f$
+SELECT CASE WHEN empty THEN jsonb_build_object(
+    'usage', jsonb_build_object('nights', '[]'::jsonb, 'last', NULL, 'median_30', NULL, 'n_30', 0, 'ly_median_30', NULL, 'plugs', '[]'::jsonb),
+    'car', jsonb_build_object('year_start', date_trunc('year', now()), 'places', '[]'::jsonb, 'net_eur', NULL, 'last_session', NULL, 'reading_day', NULL),
+    'status', jsonb_build_object('monta_fetched', NULL, 'knmi_fetched', NULL, 'knmi_day', NULL, 'reading_day', NULL,
+                                 'jobs_total', 0, 'jobs_failed', '[]'::jsonb, 'jobs_last_ok', NULL))
+ELSE jsonb_build_object(
+    'usage', jsonb_build_object(
+        'nights', (SELECT jsonb_agg(jsonb_build_object('night', current_date - i, 'w', CASE WHEN i % 7 = 3 THEN 2000 ELSE 380 + (i % 5) * 10 END,
+                                                       'car', i % 7 = 3) ORDER BY i DESC) FROM generate_series(0, 59) AS i),
+        'last', jsonb_build_object('night', current_date, 'w', 380, 'car', false),
+        'median_30', 390, 'n_30', 26, 'ly_median_30', 350,
+        'plugs', '[{"name":"tv","today_kwh":0.9,"night_w":12.5},{"name":"router","today_kwh":0.5,"night_w":42.0}]'::jsonb),
+    'car', jsonb_build_object(
+        'year_start', date_trunc('year', now()),
+        'places', '[{"kind":"home","sessions":100,"kwh":2000.0,"solar_kwh":600.0,"reimbursed_eur":550.0,"real_cost_eur":420.0,"billed_eur":null},
+                    {"kind":"work","sessions":50,"kwh":1000.0,"solar_kwh":null,"reimbursed_eur":null,"real_cost_eur":null,"billed_eur":250.0},
+                    {"kind":"public","sessions":10,"kwh":100.0,"solar_kwh":null,"reimbursed_eur":null,"real_cost_eur":null,"billed_eur":45.0}]'::jsonb,
+        'net_eur', 130.5,
+        'last_session', jsonb_build_object('time', now() - interval '2 days', 'kind', 'work', 'kwh', 20.0),
+        'reading_day', current_date - 20),
+    'status', jsonb_build_object('monta_fetched', now() - interval '3 hours', 'knmi_fetched', now() - interval '5 hours',
+                                 'knmi_day', current_date - 3, 'reading_day', current_date - 20,
+                                 'jobs_total', 15, 'jobs_failed', '[]'::jsonb, 'jobs_last_ok', now() - interval '10 minutes'))
+END
+FROM smoke_mode;
+$f$;
+GRANT EXECUTE ON FUNCTION app_meer() TO energy_app;
+
 GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
                 app_battery_soc_today, app_battery_summary, app_battery_efficiency TO energy_app;

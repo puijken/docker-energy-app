@@ -337,6 +337,7 @@ function renderStatus() {
     banner.innerHTML = 'Je bent uitgelogd.<button type="button" id="relogin">Opnieuw inloggen</button>';
     $("#relogin").onclick = () => location.reload();
   } else banner.hidden = true;
+  if (!$("#scr-meer").hidden) renderMeerStatus();
 }
 
 function renderWallFoot() {
@@ -683,21 +684,35 @@ const SHEETS = {
       ["Bron", "thuisbatterij"],
     ]) + link("battery", "Batterij in Grafana") };
   },
+  mbasis() {
+    const u = state.meer?.usage;
+    const cars = (u?.nights || []).filter((x) => x.car).length;
+    return { title: `Basislast · ${u?.last ? plain(watt(u.last.w)) : "—"}`, body: rows([
+      ["Wat", "Wat het huis 's nachts gebruikt als niemand iets aanzet: alles wat altijd aan staat, zoals koelkast, router, server en stand-by. Een lagere basislast scheelt het hele jaar door."],
+      ["Berekening", "per nacht het gemiddelde verbruik van het huis tussen 01:00 en 05:00 (net plus wat de batterij aan het huis levert); “gewoonlijk” is de mediaan van de laatste 30 nachten, zodat een uitschieter niet meetelt"],
+      ["Auto", `nachten waarin de auto thuis laadde (grijs in de grafiek${cars ? `, ${cars} van de laatste ${u.nights.length}` : ""}) tellen niet mee: de lader is ook verbruik van het huis. Laadbeurten worden in delen ingelezen, dus een recente laadnacht kan nog blauw staan; de mediaan laat die buiten beschouwing.`],
+      ["Vorig jaar", u && isNum(u.ly_median_30) ? `${plain(watt(u.ly_median_30))}: dezelfde 30 nachten een jaar eerder, op dezelfde manier` : "te weinig nachten zonder laden in dezelfde periode vorig jaar"],
+      ["Stekkers", "de tabel eronder splitst vannacht uit: wat elke meetstekker gemiddeld deed, en wat er voor de rest van het huis overbleef"],
+      ["Periode", "de laatste 60 nachten; vannacht = de nacht naar vandaag toe"],
+      ["Bron", "slimme meter, thuisbatterij, meetstekkers, laadsessies"],
+    ]) + link("day", "Verloop per dag in Grafana") };
+  },
+  mauto() {
+    const car = state.meer?.car, by = Object.fromEntries((car?.places || []).map((p) => [p.kind, p]));
+    const h = by.home;
+    return { title: `Auto · ${car && isNum(car.net_eur) ? eur(car.net_eur) : "—"}`, body: rows([
+      ["Wat", "Waar de auto dit jaar laadde, en wat thuis laden opleverde."],
+      ["Thuis", h ? `${plain(kwh(h.kwh, 0))} in ${h.sessions} keer, waarvan ${plain(kwh(h.solar_kwh, 0))} uit eigen zon` : "—"],
+      ["Vergoed − kosten", h ? `${eur(h.reimbursed_eur)} vergoed − ${eur(h.real_cost_eur)} werkelijke kosten (stroom van het net tegen je contractprijs, eigen zon tegen wat die zon anders had opgeleverd) = ${eur(car.net_eur)}` : "—"],
+      ["Werk en onderweg", "geladen met de laadpas; het bedrag is wat er op de laadpas werd afgerekend"],
+      ["Periode", "1 januari tot nu"],
+      ["Bron", "laadpaal thuis en de laadpas-sessies; kilometerstanden uit de auto-app"],
+    ]) + link("car", "Auto in Grafana") };
+  },
   status() {
     const list = sources().map((s) => [s.name, `<span class="dot" style="background:var(${s.ok ? "--ok" : "--warn"})"></span>${esc(s.text)}`]);
     const w = warnings();
     return { title: "Status", body: rows(list) + (w.length ? `<p><b>Let op</b></p><ul>${w.map((x) => `<li>${esc(x.text)}</li>`).join("")}</ul>` : "<p>Alle bronnen melden zich op tijd.</p>") + link("tech", "Techniek in Grafana") };
-  },
-  meer() {
-    const L = state.config.links;
-    const items = [
-      L.plugs && `<li><a href="${esc(L.plugs)}" target="_blank" rel="noopener">Stekkers</a> (Grafana)</li>`,
-      L.tech && `<li><a href="${esc(L.tech)}" target="_blank" rel="noopener">Techniek</a> (Grafana)</li>`,
-      '<li><a href="#contracten">Energiecontracten</a></li>',
-      '<li><a href="#" data-sheet="status">Status van de bronnen</a></li>',
-      '<li><a href="?kiosk">Wandweergave</a></li>',
-    ].filter(Boolean).join("");
-    return { title: "Meer", body: `<ul>${items}</ul><p style="color:var(--muted)">Alles wat dieper gaat staat in Grafana; elke kaart heeft een link.</p>` };
   },
 };
 
@@ -1022,6 +1037,156 @@ async function fetchContracts() {
   renderContracts(); refreshSheet();
 }
 
+// ---------- Meer screen (/api/meer: app_meer(): base load, plugs, car, background sources) ----------
+state.meer = null;
+const PLACE = { home: "thuis", work: "op het werk", public: "onderweg" };
+const watt = (x) => (isNum(x) ? unit(fmt[0].format(x), "W") : "—");
+const daysAgo = (d) => (d ? Math.floor((Date.now() - new Date(`${d}T12:00:00Z`)) / 86400000) : null);
+const nowIso = () => new Date().toISOString();
+
+// Sources that report in the background, next to the live ones of sources(): when each last delivered.
+function backgroundSources() {
+  const s = state.meer?.status;
+  if (!s) return [];
+  const out = [
+    { name: "Laadpas-sessies", age: secondsBetween(nowIso(), s.monta_fetched), limit: 20 * 3600 },
+    { name: "Daggemiddelden KNMI", age: secondsBetween(nowIso(), s.knmi_fetched), limit: 20 * 3600, extra: s.knmi_day ? ` · t/m ${dmy(s.knmi_day)}` : "" },
+  ];
+  out.forEach((x) => { x.ok = isNum(x.age) && x.age <= x.limit; x.text = ago(x.age) + (x.extra || ""); });
+  const failed = s.jobs_failed || [];
+  out.push({ name: "Databasetaken", ok: failed.length === 0 && s.jobs_total > 0,
+    text: failed.length ? `${failed.length} van ${s.jobs_total} mislukt` : `${s.jobs_total} van ${s.jobs_total} in orde${s.jobs_last_ok ? `, laatst ${hm(s.jobs_last_ok)}` : ""}` });
+  const n = daysAgo(s.reading_day);
+  out.push({ name: "Kilometerstand", ok: isNum(n) && n <= 100, text: s.reading_day ? `${dmy(s.reading_day)} (${n} ${n === 1 ? "dag" : "dagen"} geleden)` : "nog geen" });
+  return out;
+}
+
+function backgroundWarnings() {
+  const out = [];
+  for (const x of backgroundSources()) {
+    if (x.ok) continue;
+    if (x.name === "Kilometerstand") out.push({ level: "warn", text: "De laatste kilometerstand is meer dan 100 dagen oud; voeg een nieuwe stand uit de auto-app toe." });
+    else if (x.name === "Databasetaken") out.push({ level: "warn", text: `Databasetaken: ${(state.meer.status.jobs_failed || []).map((j) => j.what).join(", ")} mislukt.` });
+    else out.push({ level: "warn", text: `${x.name}: ${x.text}.` });
+  }
+  return out;
+}
+
+function renderMeerStatus() {
+  const box = $("[data-msrc]");
+  if (!box) return;
+  const list = [...sources(), ...backgroundSources()];
+  box.innerHTML = list.map((s) => `<dt>${esc(s.name)}</dt><dd><span class="dot" style="background:var(${s.ok ? "--ok" : "--warn"})"></span>${esc(s.text)}</dd>`).join("");
+  const w = [...warnings(), ...backgroundWarnings()];
+  const ul = $("[data-mwarn]");
+  ul.hidden = !w.length;
+  ul.innerHTML = w.map((x) => `<li>${esc(x.text)}</li>`).join("");
+  setV("m-stat-sum", !state.live ? "" : w.length ? `${w.length} ${w.length === 1 ? "melding" : "meldingen"}` : "alles werkt");
+}
+
+function nightChart(nights, median, width) {
+  const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(200, Math.max(140, W * 0.3)));
+  const L = 44, R = 6, T = 10, B = 24, n = Math.max(nights.length, 1);
+  const max = Math.max(100, ...nights.map((x) => x.w).filter(isNum));
+  const step = [100, 200, 250, 500, 1000].find((s) => max / s <= 4) || 1000;
+  const top = Math.ceil(max / step) * step;
+  const y = (v) => T + ((top - v) / top) * (H - T - B);
+  const slotW = (W - L - R) / n, cx = (i) => L + slotW * (i + 0.5), bw = Math.max(2, Math.min(14, slotW * 0.7));
+  let grid = "";
+  for (let v = 0; v <= top; v += step) grid += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="g"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="ax">${fmt[0].format(v)}</text>`;
+  const every = W < 420 ? 14 : 7;
+  const label = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString("nl-NL", { day: "numeric", month: "short", timeZone: "UTC" });
+  // the newest night is labelled; a label too close to an edge is anchored to that edge, not cut off
+  const tick = (i, text) => { const x = cx(i), a = x > W - R - 24 ? ["end", W - R] : x < L + 24 ? ["start", L] : ["middle", x]; return `<text x="${a[1]}" y="${H - 6}" text-anchor="${a[0]}" class="ax">${text}</text>`; };
+  const ticks = nights.map((x, i) => (nights.length - 1 - i) % every === 0 ? tick(i, label(x.night)) : "").join("");
+  const bars = nights.map((x, i) => isNum(x.w) ? `<rect x="${(cx(i) - bw / 2).toFixed(1)}" y="${y(x.w).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y(0) - y(x.w)).toFixed(1)}" rx="${Math.min(3, bw / 3).toFixed(1)}" fill="var(${x.car ? "--ref" : "--huis"})"><title>nacht naar ${label(x.night)}: ${fmt[0].format(x.w)} W${x.car ? " (auto laadde thuis)" : ""}</title></rect>` : "").join("");
+  const med = isNum(median) ? `<line x1="${L}" x2="${W - R}" y1="${y(median).toFixed(1)}" y2="${y(median).toFixed(1)}" stroke="var(--fg)" stroke-width="1.5" stroke-dasharray="5 4"/>` : "";
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">${grid}${bars}${med}${ticks}</svg>`;
+}
+
+function renderMeer() {
+  const m = state.meer, u = m?.usage, car = m?.car;
+  setV("m-last", u?.last ? watt(u.last.w) : "—");
+  setV("m-last-sub", u?.last ? `nacht naar ${dmy(u.last.night)}${u.last.car ? " · auto laadde thuis" : ""}` : "");
+  setV("m-med", u && isNum(u.median_30) ? watt(u.median_30) : "—");
+  setV("m-med-sub", u && isNum(u.median_30) ? `mediaan van ${u.n_30} nachten${isNum(u.ly_median_30) ? ` · vorig jaar ${fmt[0].format(u.ly_median_30)} W` : ""}` : "");
+  const box = $("[data-mchart]");
+  if (box) box.innerHTML = u?.nights?.length ? nightChart(u.nights, u.median_30, box.clientWidth) : "";
+
+  const tb = $("[data-mplugs]");
+  if (tb) {
+    const plugs = u?.plugs || [];
+    const nightSum = plugs.reduce((a, p) => a + (isNum(p.night_w) ? p.night_w : 0), 0);
+    const rest = u?.last && !u.last.car && plugs.some((p) => isNum(p.night_w)) ? u.last.w - nightSum : null;
+    tb.innerHTML = plugs.length ? plugs.map((p) => `<tr><th scope="row">${esc(plugLabel(p.name))}</th><td>${plain(kwh(p.today_kwh, 2))}</td><td>${plain(watt(p.night_w))}</td></tr>`).join("")
+      + (isNum(rest) ? `<tr class="rest"><th scope="row">Rest van het huis</th><td></td><td>${plain(watt(rest))}</td></tr>` : "")
+      : '<tr><td colspan="3" class="empty">geen stekkers gezien</td></tr>';
+  }
+
+  const by = Object.fromEntries((car?.places || []).map((p) => [p.kind, p]));
+  const times = (p) => `${p.sessions} keer`;
+  const yr = car?.year_start ? new Date(car.year_start).toLocaleDateString("nl-NL", { year: "numeric", timeZone: TZ }) : "";
+  setV("m-car-period", yr ? `${yr} tot nu` : "dit jaar");
+  const h = by.home, w = by.work, p = by.public;
+  setV("m-home", h ? kwh(h.kwh, 0) : car ? kwh(0, 0) : "—");
+  setV("m-home-sub", h ? `${isNum(h.solar_kwh) && h.kwh ? `${fmt[0].format((h.solar_kwh / h.kwh) * 100)} % eigen zon · ` : ""}${times(h)}` : "");
+  setV("m-work", w ? kwh(w.kwh, 0) : car ? kwh(0, 0) : "—");
+  setV("m-work-sub", w ? `${eur0(w.billed_eur)} op de laadpas · ${times(w)}` : "");
+  setV("m-public", p ? kwh(p.kwh, 0) : car ? kwh(0, 0) : "—");
+  setV("m-public-sub", p ? `${eur0(p.billed_eur)} op de laadpas · ${times(p)}` : "");
+  setV("m-net", car && isNum(car.net_eur) ? eur(car.net_eur) : "—");
+  setV("m-net-sub", h ? `vergoed ${eur0(h.reimbursed_eur)} − kosten ${eur0(h.real_cost_eur)}` : "");
+  const ls = car?.last_session;
+  setV("m-lastses", ls ? `${dmyTs(ls.time)}` : "—");
+  setV("m-lastses-sub", ls ? `${PLACE[ls.kind] || ls.kind} · ${plain(kwh(ls.kwh))}` : "");
+  const note = $("[data-mreading]");
+  const n = daysAgo(car?.reading_day);
+  if (note) {
+    note.hidden = !(isNum(n) && n > 90);
+    note.textContent = note.hidden ? "" : `De laatste kilometerstand is van ${dmy(car.reading_day)}; tijd voor een nieuwe stand uit de auto-app.`;
+  }
+  renderMeerStatus();
+}
+
+const GLOSSARY = [
+  ["Opgewekt", "Wat de zonnepanelen opwekten."],
+  ["Verbruik", "Wat het huis gebruikte, auto en stekkers inbegrepen, of het nu uit de zon, de batterij of het net kwam."],
+  ["Afgenomen · teruggeleverd", "Stroom van en naar het net, volgens de slimme meter."],
+  ["Zelfvoorzienend", "Deel van je verbruik dat uit eigen zon kwam, direct of via de batterij."],
+  ["Zelf benut", "Deel van de opgewekte zon dat je niet teruggeleverd hebt: zelf gebruikt of in de batterij gezet."],
+  ["Basislast", "Wat het huis 's nachts tussen 01:00 en 05:00 gemiddeld gebruikt: alles wat altijd aan staat, zoals koelkast, router en stand-by. Nachten waarin de auto thuis laadde tellen niet mee."],
+  ["Nog beschikbaar", "Wat er nog uit de batterij kan voordat hij bij de ondergrens stopt."],
+  ["Volle cycli", "Hoe vaak de batterij in totaal volgeladen werd: twee keer half vol telt als één cyclus."],
+  ["Rendement", "Welk deel van wat de batterij in ging er ook weer uit kwam. De rest gaat verloren als warmte bij het omzetten."],
+  ["Graaddagen", "Hoe koud het was, zo gerekend dat het past bij hoeveel dit huis stookt. Twee keer zoveel graaddagen betekent ongeveer twee keer zoveel gas voor verwarming."],
+  ["Salderen", "Teruglevering wordt verrekend tegen de stroomprijs, tot de afname op is. Kan tot en met 2026; vanaf 2027 levert teruglevering alleen de terugleververgoeding op."],
+  ["Terugleverkosten", "Wat de leverancier rekent voor teruggeleverde stroom: per schijf (staffel) of per kWh."],
+  ["≈ en “berekend”", "Een getal dat niet gemeten is maar uitgerekend, met een aanname erin, zoals wat de batterij bespaart of de zonverwachting. Al het andere is gemeten."],
+  ["Live en vandaag", "Live is de laatste meting, elke paar seconden ververst. Vandaag loopt van 00:00 tot nu."],
+];
+function renderGlossary() {
+  const box = $("[data-mgloss]");
+  if (box && !box.childElementCount) box.innerHTML = GLOSSARY.map(([t, d]) => `<details><summary>${esc(t)}</summary><p>${esc(d)}</p></details>`).join("");
+  const ul = $("[data-mlinks]");
+  if (ul) {
+    const L = state.config.links;
+    ul.innerHTML = [
+      '<li><a href="#contracten">Energiecontracten</a></li>',
+      '<li><a href="?kiosk">Wandweergave</a></li>',
+      ...[["plugs", "Stekkers"], ["car", "Auto"], ["tech", "Techniek"]].filter(([k]) => L[k]).map(([k, t]) => `<li><a href="${esc(L[k])}" target="_blank" rel="noopener">${t} in Grafana ↗</a></li>`),
+    ].join("");
+  }
+}
+
+let meerTimer = null;
+async function fetchMeer() {
+  try {
+    const r = await fetch("/api/meer", { cache: "no-store", credentials: "same-origin" });
+    if (r.ok) { const j = await r.json(); if (j.data) state.meer = j.data; }
+  } catch { /* offline: keep what we have */ }
+  renderMeer(); refreshSheet();
+}
+
 // ---------- Batterij screen (/api/battery: app_battery_soc_today, _summary, _efficiency) ----------
 // Fetched only while the screen is open, every batteryInterval seconds; live values (charge level,
 // power, temperature) come from the same stream as Thuis.
@@ -1114,8 +1279,8 @@ async function fetchBattery() {
   renderBattery(); refreshSheet();
 }
 
-// ---------- screens: Thuis (default) and Batterij, by the address's #hash ----------
-const SCREENS = { thuis: "Thuis", historie: "Historie", geld: "Geld", batterij: "Batterij", contracten: "Contracten" };
+// ---------- screens, by the address's #hash (Thuis is the default) ----------
+const SCREENS = { thuis: "Thuis", historie: "Historie", geld: "Geld", batterij: "Batterij", meer: "Meer", contracten: "Contracten" };
 const TAB_OF = { contracten: "geld" }; // screens without their own tab light up their parent's
 function currentScreen() { const h = location.hash.replace("#", ""); return SCREENS[h] ? h : "thuis"; }
 function showScreen() {
@@ -1131,6 +1296,12 @@ function showScreen() {
   clearInterval(batteryTimer); batteryTimer = null;
   clearInterval(histTimer); histTimer = null;
   clearInterval(moneyTimer); moneyTimer = null;
+  clearInterval(meerTimer); meerTimer = null;
+  if (name === "meer" && !wallMode) {
+    renderGlossary();
+    fetchMeer();
+    meerTimer = setInterval(fetchMeer, 60000);
+  }
   if (name === "contracten" && !wallMode) fetchContracts();
   if (name === "geld" && !wallMode) {
     fetchMoney();
@@ -1165,7 +1336,6 @@ function renderTabs() {
   const tab = (key, label, href) => {
     const svg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${ICONS[key]}</svg>`;
     if (SCREENS[key]) return `<a class="tab" data-screen="${key}" href="#${key === "thuis" ? "" : key}">${svg}<span>${label}</span></a>`;
-    if (key === "meer") return `<button type="button" class="tab" data-sheet="meer">${svg}<span>${label}</span></button>`;
     if (!href) return "";
     return `<a class="tab" href="${esc(href)}" target="_blank" rel="noopener" title="${label} in Grafana">${svg}<span>${label} <span class="ext">↗</span></span></a>`;
   };
