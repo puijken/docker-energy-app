@@ -399,6 +399,17 @@ async def service_worker(request: Request) -> Response:
                         headers={"Cache-Control": "no-cache"})
 
 
+class RevalidatedStatic(StaticFiles):
+    """Static files that the browser must check before reusing. Without a Cache-Control header,
+    browsers (Safari especially) keep app.js/app.css for a guessed time, and a new page could run
+    with yesterday's script. Checking is cheap: unchanged files answer 304 on their ETag."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 routes = [
     Route("/", index),
     Route("/api/config", api_config),
@@ -412,7 +423,7 @@ routes = [
     Route("/healthz", healthz),
     Route("/manifest.webmanifest", manifest),
     Route("/sw.js", service_worker),
-    Mount("/static", StaticFiles(directory=STATIC_DIR), name="static"),
+    Mount("/static", RevalidatedStatic(directory=STATIC_DIR), name="static"),
 ]
 
 app = Starlette(routes=routes, lifespan=lifespan)
