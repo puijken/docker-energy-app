@@ -73,6 +73,7 @@ echo "ok   hist unit"
 check "money"      /api/money '"net_eur":1730.5'
 check "save total" /api/money '"total_eur":1.41'
 check "price cfg"  /api/config '"batteryPriceEur":null'
+check "contracts"  /api/contracts '"net_eur":2005.5'
 
 # The stream must deliver a live event (the cache) and a fresh one from the background reader.
 stream="$(curl -sN --max-time 4 "$BASE/api/stream" || true)"

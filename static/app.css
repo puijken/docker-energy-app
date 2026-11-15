@@ -248,3 +248,20 @@ body.walled .shell { display: none; }
 .t27 thead th { border-top: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
 .t27 th[scope=row] { text-align: left; color: var(--muted); font-weight: 500; }
 .t27 td:last-child { padding-left: 12px; }
+
+/* Contracten page */
+.contracts { display: grid; gap: 12px; max-width: 980px; }
+.contracts[hidden] { display: none; }
+.contracts .lede { margin: 0; color: var(--muted); font-size: 13.5px; }
+.clist { display: grid; gap: 6px; margin-top: 4px; }
+.crow { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; width: 100%; text-align: left;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; color: inherit; font: inherit; cursor: pointer; }
+.crow:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.crow .cmain { display: grid; gap: 2px; min-width: 0; }
+.crow .cmain b { font-weight: 600; font-size: 14px; }
+.crow small { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.crow .ctot { display: grid; gap: 2px; text-align: right; flex: none; }
+.crow .ctot b { font-family: var(--f-num); font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.chip.on { color: var(--eigen); border-color: var(--eigen); }
+@media (max-width: 520px) { .crow { flex-direction: column; } .crow .ctot { text-align: left; } }
+.nw { white-space: nowrap; }

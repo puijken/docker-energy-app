@@ -144,7 +144,7 @@
   <main class="cols" id="scr-geld" hidden>
     <div class="main-col">
       <section class="card" aria-labelledby="h-grek">
-        <h2 id="h-grek">Energierekening</h2>
+        <h2 id="h-grek">Energierekening <em><a href="#contracten">Contracten ›</a></em></h2>
         <div class="kpis">
           <button type="button" class="kpi" data-sheet="gmaand"><span class="l">Deze maand</span><span class="val" data-v="g-maand">—</span><span class="sub" data-v="g-maand-sub"></span></button>
           <button type="button" class="kpi" data-sheet="gjaar"><span class="l">Dit jaar</span><span class="val" data-v="g-jaar">—</span><span class="sub" data-v="g-jaar-sub"></span></button>
@@ -182,6 +182,19 @@
         <table class="t27"><thead><tr><th></th><th>echt</th><th>2027</th></tr></thead><tbody data-g27></tbody></table>
       </section>
     </div>
+  </main>
+
+  <!-- Contracten: every energy contract with its prices and what each term cost (app_contracts, 031). -->
+  <main class="contracts" id="scr-contracten" hidden>
+    <p class="lede"><a href="#geld">‹ Geld</a> · Alle energiecontracten, met wat elke looptijd kostte. Tik op een contract voor de details.</p>
+    <section class="card" aria-labelledby="h-clop">
+      <h2 id="h-clop">Lopend en komend</h2>
+      <div class="clist" data-clist="now"></div>
+    </section>
+    <section class="card" aria-labelledby="h-cafg">
+      <h2 id="h-cafg">Afgelopen</h2>
+      <div class="clist" data-clist="past"></div>
+    </section>
   </main>
 
   <!-- Batterij: today's charge level, counters, efficiency per power band and health (app_battery_*, 025). -->

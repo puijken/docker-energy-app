@@ -46,6 +46,13 @@ year is counted up to the same day.
 - **Klaar voor 2027** (calculated): this year's measured energy billed at the 2027 rules and prices,
   next to the real bill, per part.
 
+### Contracten
+
+`#contracten` (from Geld and Meer): every energy contract with its prices, status (lopend, komend,
+afgelopen) and what each term cost: kWh and m³, each cost part, the total and the average per day,
+plus solar and self-sufficiency over the term. Tap a contract for the details. Read-only; entering a
+new contract still happens in the source (see the deployment notes).
+
 ### Batterij
 
 - **Nu:** charge level with the lower limit, the power of the cells (laadt / ontlaadt / rust),
@@ -87,6 +94,7 @@ that screen is open.
 | `app_battery_efficiency` | nine | per power band (`band`, `label`): out ÷ in for `solar`, `battery`, `socket`, `direct`; null when there are too few readings |
 | `app_history(unit, date)` | function → JSON | Historie: the day, week, month or year containing `date`: `start`, `end`, `buckets` and `ly_buckets` (per hour for a day, per day, or per month for a year), `totals` and `ly_totals` (energy, money, gas, degree days and the ratios), `running`, `first_day` |
 | `app_money()` | function → JSON | Geld: `savings` (`today_eur`, `month_eur`, `total_eur`, `days`, `since`, `filled_at`), `bill_month` and `bill_year` (net and parts), `bill_2027` (this year at the 2027 rules: parts, `net_eur`, `real_eur`, prices) |
+| `app_contracts()` | function → JSON | Contracten: `contracts[]` with `id`, `name`, `start`, `end`, `kind`, `status`, prices (`p_normal`, `p_low`, `f_normal`, `f_low`, `p_gas`, `p_fixed`), `feedin_bands`, `feedin_cost_per_kwh`, `salderen`, and the term's `days`, kWh, m³, cost parts, `net_eur`, `generated_kwh`, `consumption_kwh`, `self_sufficiency` |
 | `app_forecast` | zero or one | solar forecast: `fetched_at`, `today_kwh`, `rest_today_kwh` (now → midnight), `tomorrow_kwh`, `tomorrow_hours` (24 when tomorrow is complete). Optional: when it is missing or fails, the rest of the screen works and the card shows “—” |
 
 `tests/fixture.sql` has stand-ins with exactly the columns the app reads. The real definitions belong
@@ -143,7 +151,7 @@ ALTER ROLE energy_app SET statement_timeout = '5s';
 GRANT USAGE ON SCHEMA public TO energy_app;
 GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
                 app_battery_soc_today, app_battery_summary, app_battery_efficiency TO energy_app;
-GRANT EXECUTE ON FUNCTION app_history(text, date), app_money() TO energy_app;
+GRANT EXECUTE ON FUNCTION app_history(text, date), app_money(), app_contracts() TO energy_app;
 -- then set its password by hand, not in a file you commit
 ```
 
@@ -155,6 +163,7 @@ GRANT EXECUTE ON FUNCTION app_history(text, date), app_money() TO energy_app;
 | `/api/stream` | Server-Sent Events: `live` and `today` events, a comment line every 15 s |
 | `/api/live`, `/api/today` | the same data as JSON (re-read at most every few seconds) |
 | `/api/history?unit=day\|week\|month\|year&date=YYYY-MM-DD` | the Historie screen for that period (400 for another unit or a bad date) |
+| `/api/contracts` | the Contracten page (re-read at most every 5 minutes) |
 | `/api/money` | the Geld screen (re-read at most every `MONEY_INTERVAL` seconds) |
 | `/api/battery` | the Batterij screen: today's charge level, the summary row, efficiency per band, the day's start and end (re-read at most every `BATTERY_INTERVAL` seconds) |
 | `/api/config` | links, plug labels, intervals, time zone |

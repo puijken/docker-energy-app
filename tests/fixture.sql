@@ -163,5 +163,24 @@ END FROM smoke_mode;
 $f$;
 GRANT EXECUTE ON FUNCTION app_money() TO energy_app;
 
+-- Contracten: the same JSON shape as the real app_contracts(), two made-up contracts.
+CREATE FUNCTION app_contracts() RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS $f$
+SELECT jsonb_build_object('today', current_date, 'contracts', CASE WHEN empty THEN '[]'::jsonb ELSE jsonb_build_array(
+    jsonb_build_object('id', 2, 'name', 'Leverancier B', 'start', '2026-03-01', 'end', '2026-12-31', 'kind', 'stroom en gas', 'status', 'lopend',
+        'p_normal', 0.30, 'p_low', 0.30, 'f_normal', 0.05, 'f_low', 0.05, 'p_gas', 1.40, 'p_fixed', 0.50,
+        'feedin_bands', true, 'feedin_cost_per_kwh', NULL, 'el_days', 68, 'gas_days', 68, 'days', 68,
+        'first_day', '2026-03-01T00:00:00+01:00', 'last_day', '2026-11-14T00:00:00+01:00',
+        'import_kwh', 600.0, 'export_kwh', 120.0, 'import_eur', 600.0, 'export_eur', 110.0, 'gas_m3', 95.0, 'gas_eur', 420.0,
+        'fixed_eur', 129.0, 'net_eur', 1039.0, 'generated_kwh', 450.0, 'consumption_kwh', 930.0, 'self_sufficiency', 0.355, 'salderen', true),
+    jsonb_build_object('id', 1, 'name', 'Leverancier A', 'start', '2025-03-01', 'end', '2026-03-01', 'kind', 'stroom en gas', 'status', 'afgelopen',
+        'p_normal', 0.25, 'p_low', 0.25, 'f_normal', 0.03, 'f_low', 0.03, 'p_gas', 1.20, 'p_fixed', 0.70,
+        'feedin_bands', true, 'feedin_cost_per_kwh', NULL, 'el_days', 372, 'gas_days', 372, 'days', 372,
+        'first_day', '2025-03-01T00:00:00+01:00', 'last_day', '2026-02-28T00:00:00+01:00',
+        'import_kwh', 4000.0, 'export_kwh', 3000.0, 'import_eur', 1000.0, 'export_eur', 90.0, 'gas_m3', 700.0, 'gas_eur', 840.0,
+        'fixed_eur', 255.5, 'net_eur', 2005.5, 'generated_kwh', 5500.0, 'consumption_kwh', 6500.0, 'self_sufficiency', 0.35, 'salderen', true)) END)
+FROM smoke_mode;
+$f$;
+GRANT EXECUTE ON FUNCTION app_contracts() TO energy_app;
+
 GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
                 app_battery_soc_today, app_battery_summary, app_battery_efficiency TO energy_app;
