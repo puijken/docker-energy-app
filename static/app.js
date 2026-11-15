@@ -544,6 +544,29 @@ const SHEETS = {
       ["Bron", "thuisbatterij"],
     ]) + link("battery", "Geladen en ontladen in Grafana") };
   },
+  contract() {
+    const c = (state.contracts?.contracts || []).find((x) => x.id === contractKey);
+    if (!c) return { title: "Contract", body: "<p>—</p>" };
+    const kwh0 = (x) => (isNum(x) ? `${fmt[0].format(x)} kWh` : "—");
+    const elec = c.kind !== "gas", gas = c.kind !== "stroom";
+    const period = c.days ? `${dmyTs(c.first_day)} – ${dmyTs(c.last_day)}, ${c.days} dagen${c.status === "lopend" ? " (tot nu)" : ""}` : c.status === "komend" ? `begint ${dmy(c.start)}` : "geen meetgegevens in deze looptijd";
+    const feedin = c.feedin_cost_per_kwh ? `${price(c.feedin_cost_per_kwh, 5)} per teruggeleverde kWh (niet in de bedragen hierboven)`
+      : c.feedin_bands ? "een vast bedrag per dag volgens een staffel op de teruglevering per jaar; ligt pas bij de jaarafrekening vast en zit niet in de bedragen hierboven" : null;
+    return { title: c.name, body: rows([
+      ["Looptijd", `${dmy(c.start)} – ${dmy(c.end)} · ${KIND[c.kind] || c.kind}${c.status !== "afgelopen" ? ` · ${c.status}` : ""}`],
+      ["Prijzen", contractPrices(c)],
+      ["Salderen", c.salderen ? "ja: teruglevering wordt per afrekenperiode verrekend tegen de stroomprijs, tot de afname op is" : "nee: teruglevering levert alleen de terugleververgoeding op"],
+      feedin && ["Teruglever\u00adkosten", feedin],
+      ["Gemeten", period],
+      elec && ["Stroom", c.days ? `${kwh0(c.import_kwh)} afgenomen (${eur(c.import_eur)}), ${kwh0(c.export_kwh)} teruggeleverd (<span class="nw">−${eur(c.export_eur)}</span>)` : "—"],
+      gas && ["Gas", c.gas_days ? `${fmt[0].format(c.gas_m3)} m³ (${eur(c.gas_eur)})` : "—"],
+      ["Vaste kosten", c.days ? eur(c.fixed_eur) : "—"],
+      ["Totaal", isNum(c.net_eur) ? `${eur(c.net_eur)}${c.days ? ` · ${eur(c.net_eur / c.days)} per dag` : ""}` : "—"],
+      elec && c.days && ["Zon en verbruik", `${kwh0(c.generated_kwh)} opgewekt, ${kwh0(c.consumption_kwh)} verbruikt, ${isNum(c.self_sufficiency) ? fmt[0].format(c.self_sufficiency * 100) + " %" : "—"} zelfvoorzienend`],
+      ["Berekening", "dezelfde dagrekening als op Geld en in Grafana: per dag met het contract dat toen gold. Gas komt van het gascontract van die dag (in 2022 liepen stroom en gas apart)."],
+      ["Bron", "contracten uit DSMR-reader, meterstanden"],
+    ]) + link("money", "Geld in Grafana") };
+  },
   gmaand() { return moneySheet("month", "Energierekening deze maand"); },
   gjaar() { return moneySheet("year", "Energierekening dit jaar"); },
   gbespaard() {
@@ -670,6 +693,7 @@ const SHEETS = {
     const items = [
       L.plugs && `<li><a href="${esc(L.plugs)}" target="_blank" rel="noopener">Stekkers</a> (Grafana)</li>`,
       L.tech && `<li><a href="${esc(L.tech)}" target="_blank" rel="noopener">Techniek</a> (Grafana)</li>`,
+      '<li><a href="#contracten">Energiecontracten</a></li>',
       '<li><a href="#" data-sheet="status">Status van de bronnen</a></li>',
       '<li><a href="?kiosk">Wandweergave</a></li>',
     ].filter(Boolean).join("");
@@ -724,6 +748,7 @@ function refreshSheet() {
 }
 
 document.addEventListener("click", (e) => {
+  if (e.target.closest('#sheet a[href^="#"]:not([data-sheet])')) $("#sheet").close();
   const el = e.target.closest("[data-sheet]");
   if (!el) return;
   e.preventDefault();
@@ -951,6 +976,52 @@ async function fetchMoney() {
   renderMoney(); refreshSheet();
 }
 
+// ---------- Contracten (/api/contracts: app_contracts()) ----------
+state.contracts = null;
+const dmy = (d) => (d ? new Date(`${d}T12:00:00Z`).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "—");
+const dmyTs = (iso) => (iso ? new Date(iso).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric", timeZone: TZ }) : "—");
+const price = (x, d = 4) => (isNum(x) ? `€ ${fmt[d].format(x)}` : "—");
+const KIND = { "stroom en gas": "stroom en gas", stroom: "alleen stroom", gas: "alleen gas" };
+
+function contractPrices(c) {
+  const parts = [];
+  if (c.kind !== "gas") {
+    parts.push(`stroom ${price(c.p_normal)}${isNum(c.p_low) && Math.abs(c.p_low - c.p_normal) > 1e-6 ? ` / ${fmt[4].format(c.p_low)} dal` : ""}`);
+    parts.push(`terug ${price(c.f_normal)}`);
+  }
+  if (c.kind !== "stroom") parts.push(`gas ${price(c.p_gas)}`);
+  parts.push(`vast ${price(c.p_fixed, 2)}/dag`);
+  return parts.join(" · ");
+}
+
+function renderContracts() {
+  const list = state.contracts?.contracts || [];
+  const row = (c) => {
+    const term = `${dmy(c.start)} – ${dmy(c.end)}`;
+    const chip = c.status === "lopend" ? '<span class="chip on">lopend</span>' : c.status === "komend" ? '<span class="chip">komend</span>' : "";
+    const total = isNum(c.net_eur) ? eur(c.net_eur, 0) : "—";
+    const sub = c.days ? `${c.days} dagen${c.status === "lopend" ? " tot nu" : ""} · ${eur(c.net_eur / c.days)}/dag` : c.status === "komend" ? "nog niet begonnen" : "geen meetgegevens";
+    return `<button type="button" class="crow" data-sheet="contract" data-cid="${c.id}">
+      <span class="cmain"><b>${esc(c.name)} ${chip}</b><small>${term} · ${KIND[c.kind] || c.kind}</small><small>${contractPrices(c)}</small></span>
+      <span class="ctot"><b>${total}</b><small>${sub}</small></span></button>`;
+  };
+  const now = list.filter((c) => c.status !== "afgelopen"), past = list.filter((c) => c.status === "afgelopen");
+  const a = $('[data-clist="now"]'), b = $('[data-clist="past"]');
+  if (a) a.innerHTML = now.length ? now.map(row).join("") : '<p class="empty">—</p>';
+  if (b) b.innerHTML = past.length ? past.map(row).join("") : '<p class="empty">—</p>';
+}
+
+let contractKey = null;
+document.addEventListener("click", (e) => { const r = e.target.closest("[data-cid]"); if (r) contractKey = Number(r.dataset.cid); }, true);
+
+async function fetchContracts() {
+  try {
+    const r = await fetch("/api/contracts", { cache: "no-store", credentials: "same-origin" });
+    if (r.ok) { const j = await r.json(); if (j.data) state.contracts = j.data; }
+  } catch { /* offline: keep what we have */ }
+  renderContracts(); refreshSheet();
+}
+
 // ---------- Batterij screen (/api/battery: app_battery_soc_today, _summary, _efficiency) ----------
 // Fetched only while the screen is open, every batteryInterval seconds; live values (charge level,
 // power, temperature) come from the same stream as Thuis.
@@ -1044,7 +1115,8 @@ async function fetchBattery() {
 }
 
 // ---------- screens: Thuis (default) and Batterij, by the address's #hash ----------
-const SCREENS = { thuis: "Thuis", historie: "Historie", geld: "Geld", batterij: "Batterij" };
+const SCREENS = { thuis: "Thuis", historie: "Historie", geld: "Geld", batterij: "Batterij", contracten: "Contracten" };
+const TAB_OF = { contracten: "geld" }; // screens without their own tab light up their parent's
 function currentScreen() { const h = location.hash.replace("#", ""); return SCREENS[h] ? h : "thuis"; }
 function showScreen() {
   const name = currentScreen();
@@ -1052,13 +1124,14 @@ function showScreen() {
   $("#page-title").textContent = SCREENS[name];
   document.title = name === "thuis" ? "Energie" : `${SCREENS[name]} · Energie`;
   $$("[data-tabs] .tab[data-screen]").forEach((a) => {
-    const on = a.dataset.screen === name;
+    const on = a.dataset.screen === (TAB_OF[name] || name);
     a.classList.toggle("on", on);
     if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   });
   clearInterval(batteryTimer); batteryTimer = null;
   clearInterval(histTimer); histTimer = null;
   clearInterval(moneyTimer); moneyTimer = null;
+  if (name === "contracten" && !wallMode) fetchContracts();
   if (name === "geld" && !wallMode) {
     fetchMoney();
     moneyTimer = setInterval(fetchMoney, 60000);
