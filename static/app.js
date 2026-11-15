@@ -1374,7 +1374,7 @@ function renderTabs() {
     if (!href) return "";
     return `<a class="tab" href="${esc(href)}" target="_blank" rel="noopener" title="${label} in Grafana">${svg}<span>${label} <span class="ext">↗</span></span></a>`;
   };
-  const html = tab("thuis", "Thuis") + tab("historie", "Historie") + tab("geld", "Geld") + tab("batterij", "Batterij") + tab("meer", "Meer");
+  const html = tab("thuis", "Thuis") + tab("batterij", "Batterij") + tab("historie", "Historie") + tab("geld", "Geld") + tab("meer", "Meer");
   $$("[data-tabs]").forEach((n) => { n.innerHTML = html; });
   $$("[data-link]").forEach((a) => {
     const href = L[a.dataset.link];
