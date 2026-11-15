@@ -628,6 +628,7 @@ const SHEETS = {
     const sm = state.battery?.summary;
     return { title: "Laadniveau vandaag", body: rows([
       ["Wat", "Hoe vol de batterij was, van middernacht tot nu, gemiddeld per 5 minuten."],
+      ["Kleuren", "groen vanaf 50 %, oranje van 20 tot 50 %, rood onder 20 %; elk stuk van de lijn heeft de kleur van zijn eigen hoogte"],
       ["Gestippeld", "de onder- en bovengrens die je in de Anker-app instelt; de batterij ontlaadt niet onder de ondergrens"],
       ["Vandaag", sm && isNum(sm.min_soc) ? `laagste ${fmt[0].format(sm.min_soc)}%, hoogste ${fmt[0].format(sm.max_soc)}%` : "—"],
       ["Periode", "vandaag 00:00 – nu, elke minuut bijgewerkt"],
@@ -1214,6 +1215,7 @@ const EFF_PATHS = [
 
 // Charge level over today as an SVG line: 00:00 – 24:00 on x (23 or 25 hours on a clock change
 // day), 0 – 100 % on y, the two limits as dashed steps. A gap of more than 15 minutes breaks the line.
+const SOC_GREEN = 50, SOC_RED = 20;   // charge-level colours on the Batterij chart
 function socChart(rows, dayStart, dayEnd, width) {
   // drawn at the card's own width, so the 12 px labels stay 12 px on a phone
   const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(240, Math.max(170, W * 0.36)));
@@ -1241,14 +1243,27 @@ function socChart(rows, dayStart, dayEnd, width) {
   const soc = { d: line(socRuns, false), last: socRuns.length ? socRuns[socRuns.length - 1].slice(-1)[0] : null };
   const up = { d: line(runs("charge_limit_soc"), true) }, low = { d: line(runs("discharge_limit_soc"), true) };
   const area = socRuns.map((pts) => `M${f1(pts[0][0])} ${y(0)}${pts.map(([px, py]) => `L${f1(px)} ${f1(py)}`).join("")}L${f1(pts[pts.length - 1][0])} ${y(0)}Z`).join("");
-  const dot = soc.last ? `<circle cx="${soc.last[0]}" cy="${soc.last[1]}" r="4" fill="var(--bat)" stroke="var(--card)" stroke-width="2"/>` : "";
+  // Colour by level: green from 50 %, amber from 20 %, red below. A vertical gradient pinned to the
+  // y axis (userSpaceOnUse) gives every part of the line the colour of its own height. The area
+  // under it stays neutral: it reaches down to 0 %, so in the same colours it would always show red.
+  const band = (v) => (v >= SOC_GREEN ? "--ok" : v >= SOC_RED ? "--warn" : "--bad");
+  const lastSoc = [...rows].reverse().find((r) => isNum(r.soc))?.soc;
+  const stops = (op0, op1) => {
+    const o = (v) => f1((1 - v / 100) * 100);   // offset (%) of level v from the top
+    const st = (off, c, op) => `<stop offset="${off}%" stop-color="var(${c})" stop-opacity="${op}"/>`;
+    const fade = (v) => (op0 + (op1 - op0) * (1 - v / 100)).toFixed(3);
+    return st(0, "--ok", fade(100)) + st(o(SOC_GREEN), "--ok", fade(SOC_GREEN)) + st(o(SOC_GREEN), "--warn", fade(SOC_GREEN))
+      + st(o(SOC_RED), "--warn", fade(SOC_RED)) + st(o(SOC_RED), "--bad", fade(SOC_RED)) + st(100, "--bad", fade(0));
+  };
+  const grad = (id, op0, op1) => `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="${y(100)}" y2="${y(0)}">${stops(op0, op1)}</linearGradient>`;
+  const dot = soc.last ? `<circle cx="${soc.last[0]}" cy="${soc.last[1]}" r="4" fill="var(${band(lastSoc)})" stroke="var(--card)" stroke-width="2"/>` : "";
   const empty = rows.length ? "" : `<text x="${(L + W - R) / 2}" y="${y(50)}" text-anchor="middle" class="ax">—: nog geen metingen vandaag</text>`;
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Laadniveau vandaag">
-    <defs><linearGradient id="socfill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--bat)" stop-opacity=".32"/><stop offset="1" stop-color="var(--bat)" stop-opacity=".03"/></linearGradient></defs>
+    <defs>${grad("socline", 1, 1)}<linearGradient id="socfill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--muted)" stop-opacity=".16"/><stop offset="1" stop-color="var(--muted)" stop-opacity=".02"/></linearGradient></defs>
     ${grid}${ticks}
     <path d="${area}" fill="url(#socfill)"/>
     <path d="${up.d}" class="lim-line"/><path d="${low.d}" class="lim-line"/>
-    <path d="${soc.d}" fill="none" stroke="var(--bat)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="${soc.d}" fill="none" stroke="url(#socline)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
     ${dot}${empty}
   </svg>`;
 }
