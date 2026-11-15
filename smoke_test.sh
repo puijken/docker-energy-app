@@ -76,6 +76,7 @@ check "price cfg"  /api/config '"batteryPriceEur":null'
 check "contracts"  /api/contracts '"net_eur":2005.5'
 check "meer base"  /api/meer '"median_30":390'
 check "meer car"   /api/meer '"net_eur":130.5'
+check "uploads"    /api/meer '"last_error":"made-up timeout"'
 
 # The stream must deliver a live event (the cache) and a fresh one from the background reader.
 stream="$(curl -sN --max-time 4 "$BASE/api/stream" || true)"

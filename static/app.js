@@ -1048,11 +1048,25 @@ const nowIso = () => new Date().toISOString();
 function backgroundSources() {
   const s = state.meer?.status;
   if (!s) return [];
+  // Uploads energy-monitor records after every attempt (upload_status): green when the last success
+  // is recent enough, a warning with the error text when not; grey "nog niet gemeld" without a row.
+  const up = s.uploads || {};
+  const upload = (key, name, limit) => {
+    const u = up[key];
+    if (!u) return { name, ok: null, text: "nog niet gemeld" };
+    const age = secondsBetween(nowIso(), u.last_ok);
+    const ok = isNum(age) && age <= limit;
+    return { name, ok, error: !ok && u.last_error ? u.last_error : null,
+      text: u.last_ok ? `${ago(age)}${u.detail ? ` · ${u.detail}` : ""}` : "nog nooit gelukt" };
+  };
   const out = [
-    { name: "Laadpas-sessies", age: secondsBetween(nowIso(), s.monta_fetched), limit: 20 * 3600 },
+    upload("pvoutput", "PVOutput", 15 * 60),
+    upload("mindergas", "Mindergas", 26 * 3600),
+    up.monta ? upload("monta", "Laadpas-sessies", 20 * 3600)
+      : { name: "Laadpas-sessies", age: secondsBetween(nowIso(), s.monta_fetched), limit: 20 * 3600 },
     { name: "Daggemiddelden KNMI", age: secondsBetween(nowIso(), s.knmi_fetched), limit: 20 * 3600, extra: s.knmi_day ? ` · t/m ${dmy(s.knmi_day)}` : "" },
   ];
-  out.forEach((x) => { x.ok = isNum(x.age) && x.age <= x.limit; x.text = ago(x.age) + (x.extra || ""); });
+  out.forEach((x) => { if ("limit" in x) { x.ok = isNum(x.age) && x.age <= x.limit; x.text = ago(x.age) + (x.extra || ""); } });
   const failed = s.jobs_failed || [];
   out.push({ name: "Databasetaken", ok: failed.length === 0 && s.jobs_total > 0,
     text: failed.length ? `${failed.length} van ${s.jobs_total} mislukt` : `${s.jobs_total} van ${s.jobs_total} in orde${s.jobs_last_ok ? `, laatst ${hm(s.jobs_last_ok)}` : ""}` });
@@ -1064,7 +1078,8 @@ function backgroundSources() {
 function backgroundWarnings() {
   const out = [];
   for (const x of backgroundSources()) {
-    if (x.ok) continue;
+    if (x.ok !== false) continue;
+    if (x.error) { out.push({ level: "warn", text: `${x.name}: laatst gelukt ${x.text}; fout: ${x.error}` }); continue; }
     if (x.name === "Kilometerstand") out.push({ level: "warn", text: "De laatste kilometerstand is meer dan 100 dagen oud; voeg een nieuwe stand uit de auto-app toe." });
     else if (x.name === "Databasetaken") out.push({ level: "warn", text: `Databasetaken: ${(state.meer.status.jobs_failed || []).map((j) => j.what).join(", ")} mislukt.` });
     else out.push({ level: "warn", text: `${x.name}: ${x.text}.` });
@@ -1076,7 +1091,7 @@ function renderMeerStatus() {
   const box = $("[data-msrc]");
   if (!box) return;
   const list = [...sources(), ...backgroundSources()];
-  box.innerHTML = list.map((s) => `<dt>${esc(s.name)}</dt><dd><span class="dot" style="background:var(${s.ok ? "--ok" : "--warn"})"></span>${esc(s.text)}</dd>`).join("");
+  box.innerHTML = list.map((s) => `<dt>${esc(s.name)}</dt><dd><span class="dot" style="background:var(${s.ok === null ? "--ref" : s.ok ? "--ok" : "--warn"})"></span>${esc(s.text)}</dd>`).join("");
   const w = [...warnings(), ...backgroundWarnings()];
   const ul = $("[data-mwarn]");
   ul.hidden = !w.length;
