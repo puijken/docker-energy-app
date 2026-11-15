@@ -518,7 +518,7 @@ const SHEETS = {
       ["Teruglevering", `${num(s.export_without_kwh, 2)} kWh zonder batterij, ${num(s.export_with_kwh, 2)} kWh echt`],
       ["Prijzen 2027", `afname € ${num(s.p_import, 5)}/kWh; teruglevering levert € ${num(s.p_feedin, 4)} op en kost € ${num(s.p_feedin_cost, 5)} terugleverkosten per kWh`],
       ["Zonder batterij", "verbruik − de zon zoals een gewone omvormer die had geleverd. Het rendement daarvan is gemeten aan je vorige omvormer (75 % bij weinig zon, 97 % bij veel). Dat is de enige aanname: daarom “berekend” en “≈”."],
-      ["Periode", TODAY_PERIOD + ", berekend uit metingen om de paar seconden"],
+      ["Periode", TODAY_PERIOD + ", berekend uit metingen om de paar seconden, elke 5 minuten bijgewerkt"],
       ["Bron", "slimme meter, thuisbatterij, contractprijzen 2027"],
     ]) };
   },
@@ -586,7 +586,7 @@ const SHEETS = {
       ["Deze maand", sv ? `≈ ${eur(sv.month_eur)}` : "—"],
       ["Sinds installatie", sv ? `≈ ${eur(sv.total_eur)} over ${sv.days} dagen${sv.since ? ` (vanaf ${new Date(sv.since).toLocaleString("nl-NL", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: TZ })})` : ""}` : "—"],
       price && ["Terugverdienen", `tegen ${eur0(price)}, de aanschafprijs (instelling BATTERY_PRICE_EUR)`],
-      ["Periode", sv?.filled_at ? `vandaag live; eerdere dagen elk uur berekend, laatst om ${hm(sv.filled_at)}` : "vandaag live; de eerdere dagen worden nog niet berekend (de dagtaak in de database staat nog niet aan), dus tellen alleen vandaag"],
+      ["Periode", sv?.filled_at ? `vandaag elke 5 minuten bijgewerkt; eerdere dagen elk uur berekend, laatst om ${hm(sv.filled_at)}` : "vandaag elke 5 minuten bijgewerkt; de eerdere dagen worden nog niet berekend (de dagtaak in de database staat nog niet aan), dus tellen alleen vandaag"],
       ["Bron", "slimme meter, thuisbatterij, contractprijzen 2027"],
     ]) };
   },

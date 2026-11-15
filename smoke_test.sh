@@ -30,7 +30,7 @@ done
 for _ in $(seq 30); do docker exec "$ID-db" pg_isready -h 127.0.0.1 -q && break; sleep 1; done
 
 docker run -d --name "$ID-app" --network "$ID" -p "127.0.0.1:$PORT:8080" \
-  -e DB_HOST="$ID-db" -e DB_PASSWORD=smoke -e LIVE_INTERVAL=1 -e TODAY_INTERVAL=2 -e MONEY_INTERVAL=1 -e BATTERY_INTERVAL=2 \
+  -e DB_HOST="$ID-db" -e DB_PASSWORD=smoke -e LIVE_INTERVAL=1 -e TODAY_INTERVAL=2 -e MONEY_INTERVAL=1 -e SAVINGS_INTERVAL=1 -e BATTERY_INTERVAL=2 \
   -e PLUG_LABELS="tv=TV,router=Router" -e LINK_DAY="https://grafana.example/d/day" "$IMAGE" >/dev/null
 BASE="http://127.0.0.1:$PORT"
 for _ in $(seq 30); do curl -fsS "$BASE/healthz" >/dev/null 2>&1 && break; sleep 1; done
