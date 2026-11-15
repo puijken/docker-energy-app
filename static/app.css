@@ -100,7 +100,7 @@ a { color: var(--accent); }
 
 .batrow { display: flex; align-items: center; gap: 12px; width: 100%; padding: 6px 4px; margin: 0 -4px 4px; border-radius: 10px; }
 .batbar { flex: 1; height: 14px; border-radius: 7px; background: var(--line); position: relative; overflow: hidden; }
-.batbar [data-bar] { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--bat); border-radius: 7px; transition: width .6s; }
+.batbar [data-bar] { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--bat); border-radius: 7px; transition: width .6s, background-color .6s; }
 .batbar .lim { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--fg); opacity: .55; display: none; }
 .batrow b { font: 600 20px var(--f-num); min-width: 3.2em; text-align: right; }
 

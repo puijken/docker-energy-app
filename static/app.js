@@ -10,7 +10,11 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const fmt = {};
 for (const d of [0, 1, 2, 3, 4, 5]) fmt[d] = new Intl.NumberFormat("nl-NL", { minimumFractionDigits: d, maximumFractionDigits: d });
 const isNum = (x) => typeof x === "number" && Number.isFinite(x);
-const num = (x, d = 1) => (isNum(x) ? fmt[d].format(x) : "—");
+// Charge-level colours, shared by the battery bars (Thuis, Batterij) and the Laadniveau vandaag chart:
+// green from 50 %, amber from 20 %, red below.
+const SOC_GREEN = 50, SOC_RED = 20;
+const socColor = (v) => (!isNum(v) ? "--bat" : v >= SOC_GREEN ? "--ok" : v >= SOC_RED ? "--warn" : "--bad");
+const num =(x, d = 1) => (isNum(x) ? fmt[d].format(x) : "—");
 const unit = (text, u) => (text === "—" ? "—" : `${text}<small>${u}</small>`);
 const kwh = (x, d = 1) => unit(num(x, d), "kWh");
 const eur = (x, d = 2) => (isNum(x) ? `${x < 0 ? "−" : ""}€\u00a0${fmt[d].format(Math.abs(x))}` : "—");
@@ -215,7 +219,10 @@ function renderLive() {
 
   // battery card
   const soc = d?.soc;
-  $$("[data-bar]").forEach((bar) => { bar.style.width = isNum(soc) ? `${Math.max(0, Math.min(100, soc))}%` : "0"; });
+  $$("[data-bar]").forEach((bar) => {
+    bar.style.width = isNum(soc) ? `${Math.max(0, Math.min(100, soc))}%` : "0";
+    bar.style.background = `var(${socColor(soc)})`;
+  });
   $$("[data-lim]").forEach((lim) => {
     if (isNum(soc) && isNum(d?.discharge_limit_soc)) { lim.style.display = "block"; lim.style.left = `${d.discharge_limit_soc}%`; } else lim.style.display = "none";
   });
@@ -1215,7 +1222,6 @@ const EFF_PATHS = [
 
 // Charge level over today as an SVG line: 00:00 – 24:00 on x (23 or 25 hours on a clock change
 // day), 0 – 100 % on y, the two limits as dashed steps. A gap of more than 15 minutes breaks the line.
-const SOC_GREEN = 50, SOC_RED = 20;   // charge-level colours on the Batterij chart
 function socChart(rows, dayStart, dayEnd, width) {
   // drawn at the card's own width, so the 12 px labels stay 12 px on a phone
   const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(240, Math.max(170, W * 0.36)));
@@ -1246,7 +1252,6 @@ function socChart(rows, dayStart, dayEnd, width) {
   // Colour by level: green from 50 %, amber from 20 %, red below. A vertical gradient pinned to the
   // y axis (userSpaceOnUse) gives every part of the line the colour of its own height. The area
   // under it stays neutral: it reaches down to 0 %, so in the same colours it would always show red.
-  const band = (v) => (v >= SOC_GREEN ? "--ok" : v >= SOC_RED ? "--warn" : "--bad");
   const lastSoc = [...rows].reverse().find((r) => isNum(r.soc))?.soc;
   const stops = (op0, op1) => {
     const o = (v) => f1((1 - v / 100) * 100);   // offset (%) of level v from the top
@@ -1256,7 +1261,7 @@ function socChart(rows, dayStart, dayEnd, width) {
       + st(o(SOC_RED), "--warn", fade(SOC_RED)) + st(o(SOC_RED), "--bad", fade(SOC_RED)) + st(100, "--bad", fade(0));
   };
   const grad = (id, op0, op1) => `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="${y(100)}" y2="${y(0)}">${stops(op0, op1)}</linearGradient>`;
-  const dot = soc.last ? `<circle cx="${soc.last[0]}" cy="${soc.last[1]}" r="4" fill="var(${band(lastSoc)})" stroke="var(--card)" stroke-width="2"/>` : "";
+  const dot = soc.last ? `<circle cx="${soc.last[0]}" cy="${soc.last[1]}" r="4" fill="var(${socColor(lastSoc)})" stroke="var(--card)" stroke-width="2"/>` : "";
   const empty = rows.length ? "" : `<text x="${(L + W - R) / 2}" y="${y(50)}" text-anchor="middle" class="ax">—: nog geen metingen vandaag</text>`;
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Laadniveau vandaag">
     <defs>${grad("socline", 1, 1)}<linearGradient id="socfill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--muted)" stop-opacity=".16"/><stop offset="1" stop-color="var(--muted)" stop-opacity=".02"/></linearGradient></defs>
