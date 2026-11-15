@@ -682,7 +682,7 @@ const SHEETS = {
       ["Zon → batterij + huis", "(in de cellen + naar het huis) ÷ zon, tijdens laden uit zon"],
       ["Batterij → huis", "naar het huis ÷ uit de cellen, tijdens ontladen zonder zon"],
       ["Stopcontact → batterij", "in de cellen ÷ uit het stopcontact, tijdens laden van het net"],
-      ["Zon → huis", "naar het huis ÷ zon, als de batterij vol is"],
+      ["Zon → huis", "niet getoond: als de batterij vol is, geeft ze voor het huis precies het zonvermogen door, dus daar valt geen rendement uit af te lezen"],
       ["Periode", "laatste 30 dagen; een band telt pas vanaf 5 minuten metingen"],
       ["Bron", "thuisbatterij, metingen om de paar seconden"],
     ]) + link("battery", "Rendement in Grafana") };
@@ -1270,7 +1270,8 @@ const EFF_PATHS = [
   ["solar", "Zon → batterij + huis", "var(--zon)"],
   ["battery", "Batterij → huis", "var(--bat)"],
   ["socket", "Stopcontact → batterij", "var(--uit)"],
-  ["direct", "Zon → huis (batterij vol)", "var(--eigen)"],
+  // No "Zon → huis (batterij vol)": in standby the battery reports its AC output as exactly its PV
+  // power, so that ratio is ~100 % by construction, not a measurement.
 ];
 
 // Charge level over today as an SVG line: 00:00 – 24:00 on x (23 or 25 hours on a clock change
@@ -1458,27 +1459,41 @@ async function checkAuth() {
   } catch { return "offline"; }
 }
 
-let source = null, failures = 0;
+// EventSource reconnects by itself after a dropped connection, but gives up for good when a reconnect
+// gets an error reply (Traefik's 502/404 while the app restarts or redeploys, or Authelia's login page):
+// then readyState is CLOSED and nothing would ever update again. So reconnect ourselves, with a
+// growing delay (5 s, 10 s, … up to a minute), unless the session needs a new login.
+let source = null, failures = 0, retryTimer = null;
 function connect() {
-  source = new EventSource("/api/stream");
-  source.addEventListener("live", (e) => {
+  clearTimeout(retryTimer); retryTimer = null;
+  if (source) source.close();
+  const es = new EventSource("/api/stream");
+  source = es;
+  es.addEventListener("live", (e) => {
     state.live = JSON.parse(e.data); state.liveAt = Date.now(); state.cached = false; failures = 0; state.auth = "ok";
     renderLive(); refreshSheet(); save();
   });
-  source.addEventListener("today", (e) => {
+  es.addEventListener("today", (e) => {
     state.today = JSON.parse(e.data); renderToday(); renderLive(); refreshSheet(); save();
   });
-  source.onerror = async () => {
+  es.onerror = async () => {
     failures += 1;
-    if (failures < 2) return; // EventSource retries on its own
+    if (failures < 2 && es.readyState !== EventSource.CLOSED) return; // it retries on its own
     state.auth = await checkAuth();
+    if (es !== source) return; // replaced meanwhile
     if (state.auth === "login") {
-      source.close();
+      es.close();
       if (wallMode) setTimeout(() => location.reload(), 30000);
+    } else if (es.readyState === EventSource.CLOSED && !retryTimer) {
+      retryTimer = setTimeout(connect, Math.min(60000, 5000 * failures));
     }
     renderStatus(); renderFreshness(); renderWallFoot();
   };
 }
+// A phone that comes back to the app: don't wait for the retry delay.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && source && source.readyState === EventSource.CLOSED && state.auth !== "login") connect();
+});
 
 // ---------- wall view ----------
 function startWall() {
