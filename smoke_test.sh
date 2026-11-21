@@ -30,7 +30,7 @@ done
 for _ in $(seq 30); do docker exec "$ID-db" pg_isready -h 127.0.0.1 -q && break; sleep 1; done
 
 docker run -d --name "$ID-app" --network "$ID" -p "127.0.0.1:$PORT:8080" \
-  -e DB_HOST="$ID-db" -e DB_PASSWORD=smoke -e LIVE_INTERVAL=1 -e TODAY_INTERVAL=2 -e MONEY_INTERVAL=1 -e SAVINGS_INTERVAL=1 -e BATTERY_INTERVAL=2 -e SOLAR_INTERVAL=1 \
+  -e DB_HOST="$ID-db" -e DB_PASSWORD=smoke -e LIVE_INTERVAL=1 -e TODAY_INTERVAL=2 -e MONEY_INTERVAL=1 -e SAVINGS_INTERVAL=1 -e BATTERY_INTERVAL=2 -e SOLAR_INTERVAL=1 -e DETAIL_INTERVAL=1 \
   -e PLUG_LABELS="tv=TV,router=Router" -e LINK_DAY="https://grafana.example/d/day" "$IMAGE" >/dev/null
 BASE="http://127.0.0.1:$PORT"
 for _ in $(seq 30); do curl -fsS "$BASE/healthz" >/dev/null 2>&1 && break; sleep 1; done
@@ -83,6 +83,7 @@ check "uploads"    /api/meer '"last_error":"made-up timeout"'
 check "strings"    /api/live '"east_stuck":true'
 check "solar day"  /api/solar '"east_low_min":90'
 check "solar hrs"  /api/solar '"west_fc_wh":'
+check "detail"     /api/detail '"usual_kwh":1.1'
 
 # The stream must deliver a live event (the cache) and a fresh one from the background reader.
 stream="$(curl -sN --max-time 4 "$BASE/api/stream" || true)"
@@ -105,6 +106,7 @@ check "empty bat"   /api/battery '"soc":[]'
 check "empty soh"   /api/battery '"soh":null'
 check "empty meer"  /api/meer '"nights":[]'
 check "empty strs"  /api/live '"strings_time":null'
+check "empty dtl"   /api/detail '"plugs":[]'
 check "empty hist"  "/api/history?unit=year&date=2026-01-01" '"buckets":[]'
 
 # Database gone: the app keeps answering with ok:false and the last values.

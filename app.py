@@ -4,7 +4,8 @@ It shows what the house is doing now and how today went, from a TimescaleDB that
 fills. It never talks to a device and never writes: it connects with a read-only database role and
 reads views only (app_live, app_solar_live, app_today, app_battery_savings_today, app_forecast,
 app_battery_* for the Batterij screen) and read-only functions (app_history* for Historie,
-app_money for Geld, app_contracts for Contracten, app_meer for Meer, app_solar for the Zon sheet). All calculation rules live in those views, so the numbers match whatever else
+app_money for Geld, app_contracts for Contracten, app_meer for Meer, app_solar for the Zon sheet,
+app_today_detail for the other Thuis sheets). All calculation rules live in those views, so the numbers match whatever else
 reads the same database.
 
 One reader serves every open screen: a background task reads the live view every LIVE_INTERVAL
@@ -54,6 +55,9 @@ SAVINGS_INTERVAL = float(os.environ.get("SAVINGS_INTERVAL", "300"))
 # The Zon sheet's day per string (app_solar, ~60 ms) is re-read at most this often, and only while
 # someone has the sheet open.
 SOLAR_INTERVAL = float(os.environ.get("SOLAR_INTERVAL", "60"))
+# Today per hour behind the Huis, Net, Gas, Buiten and plug sheets (app_today_detail, ~250 ms): at most
+# this often, and only while one of those sheets is open.
+DETAIL_INTERVAL = float(os.environ.get("DETAIL_INTERVAL", "60"))
 
 
 def conninfo() -> str:
@@ -100,6 +104,7 @@ def client_config() -> dict:
         "todayInterval": TODAY_INTERVAL,
         "batteryInterval": BATTERY_INTERVAL,
         "solarInterval": SOLAR_INTERVAL,
+        "detailInterval": DETAIL_INTERVAL,
         # What the battery cost, for the payback bar on the Geld screen; no bar when unset.
         "batteryPriceEur": float(os.environ["BATTERY_PRICE_EUR"]) if os.environ.get("BATTERY_PRICE_EUR", "").strip() else None,
         # Ages after which a source counts as stale on the status sheet, in seconds.
@@ -141,6 +146,8 @@ class Hub:
         self.meer_read_at = 0.0
         self.solar: dict | None = None
         self.solar_read_at = 0.0
+        self.detail: dict | None = None
+        self.detail_read_at = 0.0
         self.last_ok = 0.0
         self.last_error: str | None = None
         self.lock = asyncio.Lock()
@@ -316,6 +323,21 @@ class Hub:
             self.solar_read_at = time.monotonic()
             return self.solar
 
+    async def read_detail(self) -> dict:
+        """Today per hour for the Thuis sheets, from app_today_detail() (rules in SQL), at most every
+        DETAIL_INTERVAL seconds."""
+        async with self.lock:
+            if self.detail and self.detail["ok"] and time.monotonic() - self.detail_read_at < DETAIL_INTERVAL:
+                return self.detail
+            try:
+                row = await self._query_one("SELECT app_today_detail() AS d")
+                self.detail = {"ok": True, "data": row["d"] if row else None}
+            except Exception as exc:
+                log.warning("detail read failed: %s: %s", type(exc).__name__, exc)
+                self.detail = {"ok": False, "data": (self.detail or {}).get("data")}
+            self.detail_read_at = time.monotonic()
+            return self.detail
+
     async def ensure_fresh(self, kind: str) -> None:
         """For plain API calls: re-read only when the cached value is older than API_MIN_AGE."""
         async with self.lock:
@@ -424,6 +446,10 @@ async def api_solar(request: Request) -> Response:
     return Response(to_json(await hub.read_solar()), media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
+async def api_detail(request: Request) -> Response:
+    return Response(to_json(await hub.read_detail()), media_type="application/json", headers={"Cache-Control": "no-store"})
+
+
 async def api_stream(request: Request) -> Response:
     queue: asyncio.Queue = asyncio.Queue(maxsize=8)
 
@@ -493,6 +519,7 @@ routes = [
     Route("/api/contracts", api_contracts),
     Route("/api/meer", api_meer),
     Route("/api/solar", api_solar),
+    Route("/api/detail", api_detail),
     Route("/api/stream", api_stream),
     Route("/healthz", healthz),
     Route("/manifest.webmanifest", manifest),

@@ -294,3 +294,9 @@ body.walled .shell { display: none; }
 .sheet .chart { cursor: default; margin-top: 12px; }
 .sheet .chart .empty { margin: 4px 0; color: var(--muted); font-size: 13px; }
 .chart .fc-tick { stroke: var(--fg); stroke-width: 1.5; stroke-dasharray: 2.5 2; opacity: .75; }
+
+/* Thuis sheets: today per hour */
+.tplugday td { padding-left: 10px; vertical-align: middle; }
+.tplugday td small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
+.tplugday .spark { width: 96px; height: 22px; display: inline-block; vertical-align: middle; }
+.tplugday td:first-of-type { white-space: nowrap; }
