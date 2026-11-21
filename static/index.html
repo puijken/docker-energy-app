@@ -123,6 +123,20 @@
           <button type="button" class="kpi" data-sheet="hgpg"><span class="l">Gas per graaddag</span><span class="val" data-v="h-gpg">—</span><span class="sub" data-v="h-gpg-ly"></span></button>
         </div>
       </section>
+      <!-- Auto: charging sessions in the selected week, month or year against last year (app_history_car, 039);
+           hidden for a single day. Moved here from Meer on 2026-11-21. -->
+      <section class="card" aria-labelledby="h-hauto" data-hauto>
+        <h2 id="h-hauto">Auto <em>geladen</em></h2>
+        <div class="kpis">
+          <button type="button" class="kpi" data-sheet="hauto"><span class="l">Thuis</span><span class="val" data-v="ha-home">—</span><span class="sub" data-v="ha-home-sub"></span></button>
+          <button type="button" class="kpi" data-sheet="hauto"><span class="l">Thuis laden: vergoed − kosten</span><span class="val" data-v="ha-net">—</span><span class="sub" data-v="ha-net-sub"></span></button>
+          <button type="button" class="kpi" data-sheet="hauto"><span class="l">Werk</span><span class="val" data-v="ha-work">—</span><span class="sub" data-v="ha-work-sub"></span></button>
+          <button type="button" class="kpi" data-sheet="hauto"><span class="l">Onderweg</span><span class="val" data-v="ha-public">—</span><span class="sub" data-v="ha-public-sub"></span></button>
+        </div>
+        <p class="note" data-hacar hidden></p>
+        <p class="note" data-mreading hidden></p>
+        <a class="more" data-hacarlink hidden>Auto in Grafana ›</a>
+      </section>
       <section class="card" aria-labelledby="h-hsoc">
         <h2 id="h-hsoc">Laadniveau batterij <em data-v="h-soc-sub">%</em></h2>
         <button type="button" class="chart" data-sheet="hsoc" aria-label="Laadniveau van de batterij in deze periode" data-hsoc></button>
@@ -220,20 +234,6 @@
         <a class="more" data-link="plugs" hidden>Stekkers in Grafana ›</a>
       </section>
 
-      <section class="card" aria-labelledby="h-mauto">
-        <h2 id="h-mauto">Auto <em data-v="m-car-period">dit jaar</em></h2>
-        <div class="kpis kpis3">
-          <button type="button" class="kpi" data-sheet="mauto"><span class="l">Thuis</span><span class="val" data-v="m-home">—</span><span class="sub" data-v="m-home-sub"></span></button>
-          <button type="button" class="kpi" data-sheet="mauto"><span class="l">Werk</span><span class="val" data-v="m-work">—</span><span class="sub" data-v="m-work-sub"></span></button>
-          <button type="button" class="kpi" data-sheet="mauto"><span class="l">Onderweg</span><span class="val" data-v="m-public">—</span><span class="sub" data-v="m-public-sub"></span></button>
-        </div>
-        <div class="kpis">
-          <button type="button" class="kpi" data-sheet="mauto"><span class="l">Thuis laden: vergoed − kosten</span><span class="val" data-v="m-net">—</span><span class="sub" data-v="m-net-sub"></span></button>
-          <button type="button" class="kpi" data-sheet="mauto"><span class="l">Laatste laadbeurt</span><span class="val small" data-v="m-lastses">—</span><span class="sub" data-v="m-lastses-sub"></span></button>
-        </div>
-        <p class="note" data-mreading hidden></p>
-        <a class="more" data-link="car" hidden>Auto in Grafana ›</a>
-      </section>
     </div>
 
     <div class="side">

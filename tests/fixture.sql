@@ -199,6 +199,31 @@ FROM smoke_mode;
 $f$;
 GRANT EXECUTE ON FUNCTION app_contracts() TO energy_app;
 
+-- Historie's Auto card: the same JSON shape as the real app_history_car(), made-up numbers; the
+-- first session a year and a half back, home imported up to 20 days ago.
+CREATE FUNCTION app_history_car(p_unit text, p_anchor date) RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS $f$
+WITH p AS (
+    SELECT s, s + CASE p_unit WHEN 'day' THEN interval '1 day' WHEN 'week' THEN interval '1 week' WHEN 'month' THEN interval '1 month' ELSE interval '1 year' END AS e,
+           s - CASE p_unit WHEN 'week' THEN interval '52 weeks' ELSE interval '1 year' END AS ls
+    FROM (SELECT date_trunc(p_unit, p_anchor::timestamptz) AS s) x
+)
+SELECT jsonb_build_object(
+    'unit', p_unit, 'start', p.s, 'end', p.e, 'ly_start', p.ls, 'ly_compare_end', p.ls + (least(now(), p.e) - p.s),
+    'places', CASE WHEN m.empty THEN '[]'::jsonb ELSE
+        '[{"kind":"home","sessions":12,"kwh":180.0,"solar_kwh":54.0,"reimbursed_eur":50.0,"real_cost_eur":38.0,"billed_eur":null},
+          {"kind":"work","sessions":6,"kwh":120.0,"solar_kwh":null,"reimbursed_eur":null,"real_cost_eur":null,"billed_eur":31.0}]'::jsonb END,
+    'ly_places', CASE WHEN m.empty THEN '[]'::jsonb ELSE
+        '[{"kind":"home","sessions":15,"kwh":200.0,"solar_kwh":20.0,"reimbursed_eur":55.0,"real_cost_eur":50.0,"billed_eur":null},
+          {"kind":"public","sessions":2,"kwh":40.0,"solar_kwh":null,"reimbursed_eur":null,"real_cost_eur":null,"billed_eur":22.0}]'::jsonb END,
+    'net_eur', CASE WHEN m.empty THEN NULL ELSE 12.0 END, 'ly_net_eur', CASE WHEN m.empty THEN NULL ELSE 5.0 END,
+    'last_home', CASE WHEN m.empty THEN NULL ELSE now() - interval '20 days' END,
+    'last_session', CASE WHEN m.empty THEN NULL ELSE jsonb_build_object('time', now() - interval '2 days', 'kind', 'work', 'kwh', 20.0) END,
+    'first', CASE WHEN m.empty THEN NULL ELSE now() - interval '18 months' END,
+    'reading_day', CASE WHEN m.empty THEN NULL ELSE current_date - 20 END)
+FROM p, smoke_mode m;
+$f$;
+GRANT EXECUTE ON FUNCTION app_history_car(text, date) TO energy_app;
+
 -- Meer: the same JSON shape as the real app_meer(), made-up numbers: 60 nights around 380 W, every
 -- seventh one with the car charging at home (2 kW, left out of the median), two plugs, three places.
 CREATE FUNCTION app_meer() RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS $f$
