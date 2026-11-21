@@ -329,6 +329,10 @@ function warnings() {
   if (d && isNum(d.grid_w) && isNum(d.battery_cells_w) && d.grid_w > 50 && d.battery_cells_w < -50) {
     out.push({ level: "warn", text: `Het huis neemt ${plain(power(d.grid_w))} van het net terwijl de batterij ${plain(power(-d.battery_cells_w))} laadt. Waarschijnlijk ziet de CT-meter van de batterij fase 2 niet, zodat hij te weinig aan het huis levert.` });
   }
+  const s = state.live?.strings;
+  for (const [k, name] of STRINGS) {
+    if (s?.[`${k}_stuck`] && !state.cached) out.push({ level: "warn", text: `Zonnepanelen ${name.toLowerCase()}: de string hangt op lage spanning (${num(s[`${k}_v`], 0)} V bij ${num(s[`${k}_a`], 2)} A) en levert minder dan hij kan. Tik op de zon voor de details.` });
+  }
   return out;
 }
 
@@ -369,13 +373,22 @@ const TODAY_PERIOD = "vandaag 00:00 – nu, geen live waarde (elke minuut bijgew
 const SHEETS = {
   zon() {
     const d = state.live?.data;
+    const day = state.solar?.data || null;
+    maybeFetchSolar();
     return { title: `Zon · ${plain(power(d?.solar_w))}`, body: rows([
       ["Wat", "Wat de zonnepanelen nu leveren, en waar het heen gaat: de batterij in, naar het huis of naar het net (groene lijnen)."],
       ["Nu", d?.flow_time ? `batterij ${plain(power(d.flow_sun_bat_w))} · huis ${plain(power(d.flow_sun_house_w))} · net ${plain(power(d.flow_sun_grid_w))}` : "—"],
+    ]) + stringsBlock(day) + rows([
       ["Hoe verdeeld", "De panelen hangen aan de thuisbatterij, dus alle zonnestroom gaat door het apparaat. Gemeten: wat de cellen laden, wat het apparaat aan het huis levert en wat de slimme meter terug ziet gaan. Daaruit volgt elke lijn. Alleen als zon en batterij tegelijk aan het huis leveren (rond zonsopgang en -ondergang) is de verdeling geschat, naar verhouding. Samen iets minder dan de zon zelf: ongeveer 3 % gaat verloren bij het omzetten."],
-      ["Periode", LIVE_PERIOD()],
-      ["Bron", "thuisbatterij (PV-vermogen)"],
-    ]) + link("day", "Zon vandaag in Grafana") };
+      ["Per string", "De panelen liggen in twee strings, elk op een eigen dakvlak: oost en west. Per string gemeten: spanning × stroom, vóór het omzetten (DC), elke 5 s. Opgeteld komt dat een paar procent hoger uit dan Opgewekt, de teller van de batterij; voor de dag geldt Opgewekt."],
+      ["Verwachting", "Open-Meteo, per dakvlak (≈). Per uur per string zit die er vaak een derde naast: vergelijk oost met west en de hele dag, niet één uur."],
+      ["Lage spanning", "Telt als een string onder 150 V zit terwijl er minstens 0,3 A door loopt. Normaal werkt een string op 250–300 V. Bij zonsopgang en -ondergang zakt de spanning ook, maar dan met weinig stroom; dat telt niet mee. Blijft de batterij bij daglicht op lage spanning hangen, dan levert die string minder dan hij kan."],
+      ["Periode", `nu: ${LIVE_PERIOD()}; vandaag: 00:00 – nu, elke minuut nieuw`],
+      ["Bron", "thuisbatterij (PV-vermogen, en per string spanning en stroom); verwachting Open-Meteo"],
+    ]) + link("day", "Zon vandaag in Grafana"), after: () => {
+      const box = $("[data-solar-chart]");
+      if (box) box.innerHTML = solarChart(day, box.clientWidth);
+    } };
   },
   batterij() {
     const d = state.live?.data;
@@ -771,12 +784,13 @@ function moneySheet(k, title) {
 function openSheet(key) {
   const make = SHEETS[key];
   if (!make) return;
-  const { title, body } = make();
+  const { title, body, after } = make();
   $("#sheet-title").textContent = title;
   $("#sheet-body").innerHTML = body;
   const dlg = $("#sheet");
   dlg.dataset.key = key;
   if (!dlg.open) dlg.showModal();
+  after?.(); // drawn once the sheet is open, so a chart can take the sheet's real width
 }
 function refreshSheet() {
   const dlg = $("#sheet");
@@ -1369,6 +1383,107 @@ async function fetchBattery() {
     if (r.ok) state.battery = await r.json();
   } catch { /* offline: keep what we have */ }
   renderBattery(); refreshSheet();
+}
+
+// ---------- Zon sheet: per string (app_solar_live with the live stream, /api/solar for the day) ----------
+const STRINGS = [["east", "Oost", "var(--oost)"], ["west", "West", "var(--zon)"]];
+
+// Read on demand only: when the Zon sheet is (re)drawn and the day is older than SOLAR_INTERVAL. Every
+// attempt counts, so a failing read is retried after the interval, not on every live update.
+state.solarAt = 0;
+let solarBusy = false;
+async function fetchSolar() {
+  if (solarBusy) return;
+  solarBusy = true;
+  state.solarAt = Date.now();
+  try {
+    const r = await fetch("/api/solar", { cache: "no-store", credentials: "same-origin" });
+    if (r.ok) state.solar = await r.json();
+  } catch { /* offline: keep what we have */ } finally { solarBusy = false; }
+  refreshSheet();
+}
+function maybeFetchSolar() {
+  if (Date.now() - state.solarAt > (state.config.solarInterval ?? 60) * 1000) fetchSolar();
+}
+
+const hmRange = (a, b) => (a && b ? `${hm(a)}–${hm(b)}` : "");
+
+// The per-string table, a line about low voltage when there is something to say, and the hour chart.
+function stringsBlock(day) {
+  const s = state.live?.strings;
+  const live = !!s?.strings_time;
+  const cell = (f) => STRINGS.map(([key]) => `<td>${f(key)}</td>`).join("");
+  const fc = (key) => (day && isNum(day[`${key}_fc_sofar_kwh`]) ? `≈ ${num(day[`${key}_fc_sofar_kwh`])} kWh` : "—");
+  const low = (key) => {
+    if (!day) return "—";
+    const m = day[`${key}_low_min`];
+    const txt = isNum(m) ? `${fmt[0].format(m)} min` : "—";
+    return s?.[`${key}_stuck`] ? `<b style="color:var(--bad)">${txt} · nu</b>` : m > 0 ? `<b style="color:var(--warn)">${txt}</b>` : txt;
+  };
+  const head = STRINGS.map(([, name, c]) => `<th><i class="sq" style="--c:${c}"></i>${name}</th>`).join("");
+  const table = `<table class="t27 tstrings"><thead><tr><th></th>${head}</tr></thead><tbody>
+    <tr><th scope="row">Nu</th>${cell((k) => (live ? plain(power(s[`${k}_w`])) : "—"))}</tr>
+    <tr><th scope="row">Spanning · stroom</th>${cell((k) => (live && isNum(s[`${k}_v`]) ? `${num(s[`${k}_v`], 0)} V · ${num(s[`${k}_a`], 2)} A` : "—"))}</tr>
+    <tr><th scope="row">Vandaag</th>${cell((k) => (day ? plain(kwh(day[`${k}_kwh`])) : "—"))}</tr>
+    <tr><th scope="row">Verwacht tot nu</th>${cell(fc)}</tr>
+    <tr><th scope="row">Lage spanning</th>${cell(low)}</tr>
+  </tbody></table>`;
+
+  // One sentence per string with low voltage today: stuck now (with the other string's voltage for
+  // comparison), or how long and when it was earlier today.
+  const lines = STRINGS.map(([key, name], i) => {
+    const other = STRINGS[1 - i];
+    const m = day?.[`${key}_low_min`];
+    const span = day ? hmRange(day[`${key}_low_first`], day[`${key}_low_last`]) : "";
+    if (s?.[`${key}_stuck`]) {
+      const ov = isNum(s[`${other[0]}_v`]) && s[`${other[0]}_a`] >= 0.1 ? ` (${other[1].toLowerCase()}: ${num(s[`${other[0]}_v`], 0)} V)` : "";
+      return `<p class="sline bad"><b>${name} hangt nu op lage spanning</b>: ${num(s[`${key}_v`], 0)} V bij ${num(s[`${key}_a`], 2)} A${ov}. Die string levert nu minder dan hij kan.${m > 0 ? ` Vandaag al ${fmt[0].format(m)} min${span ? `, eerste keer ${hm(day[`${key}_low_first`])}` : ""}.` : ""}</p>`;
+    }
+    if (m > 0) return `<p class="sline">${name} hing vandaag ${fmt[0].format(m)} min op lage spanning${span ? ` (tussen ${span})` : ""}.</p>`;
+    return "";
+  }).join("");
+
+  const legend = `<p class="legend">${STRINGS.map(([, name, c]) => `<span><i class="sq" style="--c:${c}"></i>${name}</span>`).join("")}<span><i class="ln dash" style="border-top-color:var(--fg)"></i>verwacht ≈</span><span><i class="ln" style="--c:var(--bad)"></i>lage spanning</span><span>Wh per uur</span></p>`;
+  return `<h4 class="sub">Per string</h4>${table}${lines}<div class="chart" data-solar-chart></div>${day ? legend : ""}`;
+}
+
+// Today per hour: a bar per string (measured DC Wh), a dashed tick at that string's forecast, and a red
+// mark under a bar for an hour with low voltage. Only the hours with sun (measured or forecast).
+function solarChart(day, width) {
+  if (!day) return '<p class="empty">Laden…</p>';
+  const hours = day.hours || [];
+  const vals = (h) => [h.east_wh, h.west_wh, h.east_fc_wh, h.west_fc_wh].filter(isNum);
+  const active = hours.map((h, i) => (Math.max(0, ...vals(h)) >= 5 ? i : -1)).filter((i) => i >= 0);
+  if (!active.length) return '<p class="empty">—: nog geen zon gemeten of verwacht vandaag.</p>';
+  const sel = hours.slice(active[0], active[active.length - 1] + 1);
+  const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(220, Math.max(160, W * 0.34)));
+  const L = 40, R = 6, T = 10, B = 26;
+  const maxV = Math.max(100, ...sel.flatMap(vals));
+  const step = [50, 100, 250, 500, 1000].find((st) => maxV / st <= 4) || 1000;
+  const top = Math.ceil(maxV / step) * step;
+  const y = (v) => T + (1 - v / top) * (H - T - B);
+  const slot = (W - L - R) / sel.length;
+  const bw = Math.max(2, Math.min(16, slot * 0.36)), gap = Math.max(1, Math.round(slot * 0.06));
+  const f1 = (n) => n.toFixed(1);
+  const grid = [];
+  for (let v = 0; v <= top; v += step) grid.push(`<line x1="${L}" x2="${W - R}" y1="${f1(y(v))}" y2="${f1(y(v))}" class="g"/><text x="${L - 6}" y="${f1(y(v) + 4)}" text-anchor="end" class="ax">${fmt[0].format(v)}</text>`);
+  const every = Math.max(1, Math.ceil(28 / slot));
+  const bars = sel.map((h, i) => {
+    const cx = L + slot * (i + 0.5);
+    const hour = hm(h.hour).slice(0, 2);
+    const label = i % every === 0 ? `<text x="${f1(cx)}" y="${H - 6}" text-anchor="middle" class="ax">${hour}</text>` : "";
+    const parts = STRINGS.map(([key, name, c], j) => {
+      const x = j === 0 ? cx - gap / 2 - bw : cx + gap / 2;
+      const v = h[`${key}_wh`], e = h[`${key}_fc_wh`], lowMin = h[`${key}_low_min`];
+      const bar = isNum(v) && v > 0 ? `<rect x="${f1(x)}" y="${f1(y(v))}" width="${f1(bw)}" height="${f1(y(0) - y(v))}" rx="1.5" fill="${c}"/>` : "";
+      const tick = isNum(e) && e > 0 ? `<line x1="${f1(x - 1)}" x2="${f1(x + bw + 1)}" y1="${f1(y(e))}" y2="${f1(y(e))}" class="fc-tick"/>` : "";
+      const low = isNum(lowMin) && lowMin > 0 ? `<rect x="${f1(x)}" y="${f1(y(0) + 2)}" width="${f1(bw)}" height="3" fill="var(--bad)"/>` : "";
+      return bar + tick + low;
+    }).join("");
+    const tip = STRINGS.map(([key, name]) => `${name.toLowerCase()} ${isNum(h[`${key}_wh`]) ? fmt[0].format(h[`${key}_wh`]) : "—"} Wh (≈ ${isNum(h[`${key}_fc_wh`]) ? fmt[0].format(h[`${key}_fc_wh`]) : "—"})${h[`${key}_low_min`] > 0 ? `, ${fmt[0].format(h[`${key}_low_min`])} min lage spanning` : ""}`).join(" · ");
+    return `<g><title>${hour}:00 · ${tip}</title><rect x="${f1(cx - slot / 2)}" y="${T}" width="${f1(slot)}" height="${H - T - B}" fill="transparent"/>${parts}</g>${label}`;
+  }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Zon per string per uur, vandaag">${grid.join("")}${bars}</svg>`;
 }
 
 // ---------- screens, by the address's #hash (Thuis is the default) ----------

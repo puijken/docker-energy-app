@@ -4,6 +4,7 @@
   --bg: #f2f3f6; --card: #ffffff; --fg: #15171c; --muted: #636a7a; --line: #e3e6ec; --accent: #3a5bd9;
   --zon: #e0b400; --uit: #e66767; --huis: #3987e5; --bat: #b455b0; --gas: #9085e9; --deel: #2aa3b8;
   --eigen: #199e70; --terug: #b3a68f; --ref: #9ca3af;
+  --oost: #e8833a; /* the East string; West is --zon */
   --ok: #199e70; --warn: #b77d00; --bad: #d04848;
   --f-num: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
   --f-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -283,3 +284,13 @@ body.walled .shell { display: none; }
 .gloss p { margin: 0 0 8px; font-size: 13.5px; color: var(--muted); }
 .mlinks { margin: 0; padding-left: 18px; font-size: 14px; }
 .mlinks li { margin: 4px 0; }
+
+/* Zon sheet: per string (East --oost, West --zon) */
+.sheet h4.sub { margin: 16px 0 0; font: 600 15px/1.3 var(--f-num); }
+.tstrings td { padding-left: 10px; }
+.tstrings .sq { width: 10px; height: 10px; border-radius: 3px; background: var(--c); display: inline-block; margin-right: 5px; vertical-align: -1px; }
+.sheet .sline { font-size: 13.5px; }
+.sheet .sline.bad { border-left: 3px solid var(--bad); padding-left: 8px; }
+.sheet .chart { cursor: default; margin-top: 12px; }
+.sheet .chart .empty { margin: 4px 0; color: var(--muted); font-size: 13px; }
+.chart .fc-tick { stroke: var(--fg); stroke-width: 1.5; stroke-dasharray: 2.5 2; opacity: .75; }
