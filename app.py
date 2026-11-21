@@ -2,9 +2,9 @@
 
 It shows what the house is doing now and how today went, from a TimescaleDB that another service
 fills. It never talks to a device and never writes: it connects with a read-only database role and
-reads views only (app_live, app_today, app_battery_savings_today, app_forecast, app_battery_* for
-the Batterij screen) and four read-only functions (app_history for Historie, app_money for Geld,
-app_contracts for Contracten, app_meer for Meer). All calculation rules live in those views, so the numbers match whatever else
+reads views only (app_live, app_solar_live, app_today, app_battery_savings_today, app_forecast,
+app_battery_* for the Batterij screen) and five read-only functions (app_history for Historie,
+app_money for Geld, app_contracts for Contracten, app_meer for Meer, app_solar for the Zon sheet). All calculation rules live in those views, so the numbers match whatever else
 reads the same database.
 
 One reader serves every open screen: a background task reads the live view every LIVE_INTERVAL
@@ -51,6 +51,9 @@ MONEY_INTERVAL = float(os.environ.get("MONEY_INTERVAL", "300"))
 # "Bespaard door de batterij" on Thuis (app_battery_savings_today, ~0.2 s per read) is re-read at most
 # this often; the rest of the day figures keep TODAY_INTERVAL.
 SAVINGS_INTERVAL = float(os.environ.get("SAVINGS_INTERVAL", "300"))
+# The Zon sheet's day per string (app_solar, ~60 ms) is re-read at most this often, and only while
+# someone has the sheet open.
+SOLAR_INTERVAL = float(os.environ.get("SOLAR_INTERVAL", "60"))
 
 
 def conninfo() -> str:
@@ -96,6 +99,7 @@ def client_config() -> dict:
         "liveInterval": LIVE_INTERVAL,
         "todayInterval": TODAY_INTERVAL,
         "batteryInterval": BATTERY_INTERVAL,
+        "solarInterval": SOLAR_INTERVAL,
         # What the battery cost, for the payback bar on the Geld screen; no bar when unset.
         "batteryPriceEur": float(os.environ["BATTERY_PRICE_EUR"]) if os.environ.get("BATTERY_PRICE_EUR", "").strip() else None,
         # Ages after which a source counts as stale on the status sheet, in seconds.
@@ -135,6 +139,8 @@ class Hub:
         self.contracts_read_at = 0.0
         self.meer: dict | None = None
         self.meer_read_at = 0.0
+        self.solar: dict | None = None
+        self.solar_read_at = 0.0
         self.last_ok = 0.0
         self.last_error: str | None = None
         self.lock = asyncio.Lock()
@@ -155,14 +161,24 @@ class Hub:
     async def refresh_live(self) -> None:
         try:
             row = await self._query_one("SELECT * FROM app_live")
-            self.live = {"ok": True, "data": row}
+            self.live = {"ok": True, "data": row, "strings": await self._read_strings()}
             self.last_ok = time.monotonic()
             self.last_error = None
         except Exception as exc:  # report, keep the last good values, try again next round
             self.last_error = f"{type(exc).__name__}: {exc}"
             log.warning("live read failed: %s", self.last_error)
-            self.live = {"ok": False, "data": (self.live or {}).get("data")}
+            old = self.live or {}
+            self.live = {"ok": False, "data": old.get("data"), "strings": old.get("strings")}
         self.live_read_at = time.monotonic()
+
+    async def _read_strings(self) -> dict | None:
+        """Per-string solar reading for the Zon sheet and the stuck-string warning: an extra, so a
+        missing or failing view must not take the live values down."""
+        try:
+            return await self._query_one("SELECT * FROM app_solar_live")
+        except Exception as exc:
+            log.warning("strings read failed: %s: %s", type(exc).__name__, exc)
+            return (self.live or {}).get("strings")
 
     async def refresh_today(self) -> None:
         try:
@@ -283,6 +299,21 @@ class Hub:
             self.meer_read_at = time.monotonic()
             return self.meer
 
+    async def read_solar(self) -> dict:
+        """The Zon sheet's day per string, from app_solar() (rules in SQL), at most every
+        SOLAR_INTERVAL seconds."""
+        async with self.lock:
+            if self.solar and self.solar["ok"] and time.monotonic() - self.solar_read_at < SOLAR_INTERVAL:
+                return self.solar
+            try:
+                row = await self._query_one("SELECT app_solar() AS s")
+                self.solar = {"ok": True, "data": row["s"] if row else None}
+            except Exception as exc:
+                log.warning("solar read failed: %s: %s", type(exc).__name__, exc)
+                self.solar = {"ok": False, "data": (self.solar or {}).get("data")}
+            self.solar_read_at = time.monotonic()
+            return self.solar
+
     async def ensure_fresh(self, kind: str) -> None:
         """For plain API calls: re-read only when the cached value is older than API_MIN_AGE."""
         async with self.lock:
@@ -387,6 +418,10 @@ async def api_meer(request: Request) -> Response:
     return Response(to_json(await hub.read_meer()), media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
+async def api_solar(request: Request) -> Response:
+    return Response(to_json(await hub.read_solar()), media_type="application/json", headers={"Cache-Control": "no-store"})
+
+
 async def api_stream(request: Request) -> Response:
     queue: asyncio.Queue = asyncio.Queue(maxsize=8)
 
@@ -455,6 +490,7 @@ routes = [
     Route("/api/money", api_money),
     Route("/api/contracts", api_contracts),
     Route("/api/meer", api_meer),
+    Route("/api/solar", api_solar),
     Route("/api/stream", api_stream),
     Route("/healthz", healthz),
     Route("/manifest.webmanifest", manifest),

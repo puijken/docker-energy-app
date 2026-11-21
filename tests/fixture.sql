@@ -234,5 +234,54 @@ FROM smoke_mode;
 $f$;
 GRANT EXECUTE ON FUNCTION app_meer() TO energy_app;
 
-GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
+-- Zon sheet: the newest reading per string, with East stuck at low voltage (as the real view flags
+-- it), and a made-up day per hour: East peaks at 10:00, West at 14:00, East stuck 08:00-10:00.
+CREATE VIEW app_solar_live AS
+SELECT now() AS db_now,
+       CASE WHEN empty THEN NULL ELSE now() - interval '3 seconds' END AS strings_time,
+       CASE WHEN empty THEN NULL ELSE 102.0::double precision END AS east_v,
+       CASE WHEN empty THEN NULL ELSE 0.65::double precision END AS east_a,
+       CASE WHEN empty THEN NULL ELSE 66.3::double precision END AS east_w,
+       CASE WHEN empty THEN NULL ELSE 261.0::double precision END AS west_v,
+       CASE WHEN empty THEN NULL ELSE 0.51::double precision END AS west_a,
+       CASE WHEN empty THEN NULL ELSE 133.1::double precision END AS west_w,
+       NOT empty AS east_stuck, false AS west_stuck
+FROM smoke_mode;
+
+CREATE FUNCTION app_solar() RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS $f$
+WITH d AS (SELECT date_trunc('day', now()) AS t0, date_trunc('day', now()) + interval '1 day' AS t1),
+h AS (
+    SELECT t AS hour, extract(hour FROM t)::int AS hr FROM d, generate_series(d.t0, d.t1 - interval '1 hour', interval '1 hour') AS t
+), v AS (
+    SELECT hour, hr,
+           CASE WHEN hr BETWEEN 8 AND 16 THEN greatest(0, 1000 - 220 * abs(hr - 10)) * CASE WHEN hr < 10 THEN 0.4 ELSE 1 END END AS east_wh,
+           CASE WHEN hr BETWEEN 8 AND 16 THEN greatest(0, 1000 - 220 * abs(hr - 14)) END AS west_wh,
+           CASE WHEN hr BETWEEN 8 AND 16 THEN greatest(0, 1100 - 240 * abs(hr - 10)) END AS east_fc_wh,
+           CASE WHEN hr BETWEEN 8 AND 16 THEN greatest(0, 1100 - 240 * abs(hr - 14)) END AS west_fc_wh,
+           CASE WHEN hr IN (8, 9) THEN 50 - 10 * (hr - 8) END AS east_low_min
+    FROM h
+)
+SELECT CASE WHEN m.empty THEN jsonb_build_object(
+    'day_start', d.t0, 'day_end', d.t1, 'last_time', NULL, 'fetched_at', NULL,
+    'hours', (SELECT jsonb_agg(jsonb_build_object('hour', hour, 'east_wh', NULL, 'west_wh', NULL, 'east_fc_wh', NULL,
+                                                  'west_fc_wh', NULL, 'east_low_min', NULL, 'west_low_min', NULL) ORDER BY hour) FROM h),
+    'east_kwh', NULL, 'west_kwh', NULL, 'east_fc_kwh', NULL, 'west_fc_kwh', NULL,
+    'east_fc_sofar_kwh', NULL, 'west_fc_sofar_kwh', NULL, 'east_low_min', 0, 'west_low_min', 0,
+    'east_low_first', NULL, 'east_low_last', NULL, 'west_low_first', NULL, 'west_low_last', NULL)
+ELSE jsonb_build_object(
+    'day_start', d.t0, 'day_end', d.t1, 'last_time', now() - interval '3 seconds', 'fetched_at', now() - interval '20 minutes',
+    'hours', (SELECT jsonb_agg(jsonb_build_object('hour', hour, 'east_wh', east_wh, 'west_wh', west_wh, 'east_fc_wh', east_fc_wh,
+                                                  'west_fc_wh', west_fc_wh, 'east_low_min', east_low_min, 'west_low_min', NULL) ORDER BY hour) FROM v),
+    'east_kwh', (SELECT round(sum(east_wh) / 1000, 2) FROM v), 'west_kwh', (SELECT round(sum(west_wh) / 1000, 2) FROM v),
+    'east_fc_kwh', (SELECT round(sum(east_fc_wh) / 1000, 2) FROM v), 'west_fc_kwh', (SELECT round(sum(west_fc_wh) / 1000, 2) FROM v),
+    'east_fc_sofar_kwh', (SELECT round(sum(east_fc_wh) / 1000, 2) FROM v), 'west_fc_sofar_kwh', (SELECT round(sum(west_fc_wh) / 1000, 2) FROM v),
+    'east_low_min', 90, 'west_low_min', 0,
+    'east_low_first', d.t0 + interval '8 hours 5 minutes', 'east_low_last', d.t0 + interval '9 hours 55 minutes',
+    'west_low_first', NULL, 'west_low_last', NULL)
+END
+FROM d, smoke_mode m;
+$f$;
+GRANT EXECUTE ON FUNCTION app_solar() TO energy_app;
+
+GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast, app_solar_live,
                 app_battery_soc_today, app_battery_summary, app_battery_efficiency TO energy_app;
