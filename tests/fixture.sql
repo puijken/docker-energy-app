@@ -224,6 +224,31 @@ FROM p, smoke_mode m;
 $f$;
 GRANT EXECUTE ON FUNCTION app_history_car(text, date) TO energy_app;
 
+-- Thuis sheets: today per hour, made-up: 0.4 kWh an hour at night, 1.2 in the evening, yesterday
+-- 10 % lower; import except 11:00-15:00 (export); gas in the morning and evening; two plugs.
+CREATE FUNCTION app_today_detail() RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS $f$
+WITH d AS (SELECT date_trunc('day', now()) AS t0, date_trunc('day', now()) + interval '1 day' AS t1),
+h AS (SELECT t AS hour, extract(hour FROM t)::int AS hr, t < now() AS past FROM d, generate_series(d.t0, d.t1 - interval '1 hour', interval '1 hour') AS t)
+SELECT CASE WHEN m.empty THEN jsonb_build_object('day_start', d.t0, 'day_end', d.t1,
+    'hours', (SELECT jsonb_agg(jsonb_build_object('hour', hour, 'house_kwh', NULL, 'y_house_kwh', NULL, 'import_kwh', NULL, 'export_kwh', NULL, 'gas_m3', NULL) ORDER BY hour) FROM h),
+    'outdoor', '[]'::jsonb, 'plugs', '[]'::jsonb, 'night', NULL)
+ELSE jsonb_build_object('day_start', d.t0, 'day_end', d.t1,
+    'hours', (SELECT jsonb_agg(jsonb_build_object('hour', hour,
+                  'house_kwh', CASE WHEN past THEN CASE WHEN hr >= 17 THEN 1.2 ELSE 0.4 END END,
+                  'y_house_kwh', CASE WHEN hr >= 17 THEN 1.08 ELSE 0.36 END,
+                  'import_kwh', CASE WHEN past THEN CASE WHEN hr BETWEEN 11 AND 14 THEN 0.0 WHEN hr >= 17 THEN 1.2 ELSE 0.4 END END,
+                  'export_kwh', CASE WHEN past THEN CASE WHEN hr BETWEEN 11 AND 14 THEN 0.6 ELSE 0.0 END END,
+                  'gas_m3', CASE WHEN past THEN CASE WHEN hr IN (6, 7, 18, 19) THEN 0.25 ELSE 0.02 END END) ORDER BY hour) FROM h),
+    'outdoor', (SELECT jsonb_agg(jsonb_build_object('time', hour, 'c', 4 + 4 * sin((hr - 8) / 24.0 * 6.28)) ORDER BY hour) FROM h WHERE past),
+    'plugs', jsonb_build_array(
+        jsonb_build_object('name', 'tv', 'today_kwh', 0.9, 'usual_kwh', 1.1, 'usual_sofar_kwh', 0.6, 'w', (SELECT jsonb_agg(CASE WHEN past THEN CASE WHEN hr >= 18 THEN 120.0 ELSE 12.0 END END ORDER BY hour) FROM h)),
+        jsonb_build_object('name', 'router', 'today_kwh', 0.5, 'usual_kwh', 1.0, 'usual_sofar_kwh', 0.5, 'w', (SELECT jsonb_agg(CASE WHEN past THEN 42.0 END ORDER BY hour) FROM h))),
+    'night', jsonb_build_object('w', 410, 'car', false))
+END
+FROM d, smoke_mode m;
+$f$;
+GRANT EXECUTE ON FUNCTION app_today_detail() TO energy_app;
+
 -- Meer: the same JSON shape as the real app_meer(), made-up numbers: 60 nights around 380 W, every
 -- seventh one with the car charging at home (2 kW, left out of the median), two plugs, three places.
 CREATE FUNCTION app_meer() RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER AS $f$

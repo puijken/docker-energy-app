@@ -391,64 +391,106 @@ const SHEETS = {
     } };
   },
   batterij() {
-    const d = state.live?.data;
+    const d = state.live?.data, b = state.battery;
+    maybeFetchBattery();
     return { title: `Batterij · ${isNum(d?.soc) ? fmt[0].format(d.soc) + "%" : "—"}`, body: rows([
       ["Wat", "Laadniveau en wat de cellen nu doen: laden (groen; uit zon of het stopcontact) of ontladen (rood). Rode lijn naar het huis: de batterij levert uit de cellen. Rode lijn van het net: de batterij laadt uit het stopcontact."],
       ["Nu", d ? `cellen ${plain(power(d.battery_cells_w))} (boven nul ontladen) · naar het huis ${plain(power(d.battery_ac_w))}${d.socket_in_w >= 10 ? ` · uit het stopcontact ${plain(power(d.socket_in_w))}` : ""}` : "—"],
+      ["Vandaag", (() => { const t = state.today?.data; return t && isNum(t.battery_charged_kwh) ? `geladen ${num(t.battery_charged_kwh)} kWh · ontladen ${num(t.battery_discharged_kwh)} kWh` : "—"; })()],
+    ]) + `<h4 class="sub">Laadniveau vandaag</h4><div class="chart" data-bsoc></div>` + rows([
       ["Waarom verschil", "Tussen cellen en huis gaat stroom verloren bij het omzetten, en de batterij gebruikt zelf wat (stand-byverbruik)."],
       ["Temperatuur", d && isNum(d.battery_temp_c) ? `${fmt[1].format(d.battery_temp_c)} °C: de temperatuur die de batterij zelf meldt, dezelfde als in de Anker-app (welke sensor precies is niet bekend)` : "—"],
-      ["Periode", LIVE_PERIOD()],
+      ["Periode", `nu: ${LIVE_PERIOD()}; laadniveau: per 5 minuten sinds 00:00`],
       ["Bron", "thuisbatterij"],
-    ]) + link("battery", "Batterij in Grafana") };
+    ]) + '<p><a href="#batterij">Alles over de batterij ›</a></p>' + link("battery", "Batterij in Grafana"), after: () => {
+      const box = $("[data-bsoc]");
+      if (box) box.innerHTML = b?.soc && b.day_start ? socChart(b.soc, b.day_start, b.day_end, box.clientWidth) : '<p class="empty">Laden…</p>';
+    } };
   },
   huis() {
-    const d = state.live?.data;
+    const d = state.live?.data, x = state.detail?.data, t = state.today?.data;
+    maybeFetchDetail();
     const calc = d?.flow_time ? `${plain(power(d.grid_w))} net + ${plain(power(d.battery_ac_w))} uit de batterij${d.socket_in_w >= 10 ? ` − ${plain(power(d.socket_in_w))} batterij uit het stopcontact` : ""} = ${plain(power(d.house_w))}` : "—";
+    const ySoFar = yesterdaySoFar(x?.hours);
+    const plugs = x?.plugs || [];
+    const plugSum = plugs.reduce((a, p) => a + (isNum(p.today_kwh) ? p.today_kwh : 0), 0);
+    const night = x?.night;
     return { title: `Verbruik nu · ${plain(power(d?.house_w))}`, body: rows([
       ["Wat", "Wat het huis nu gebruikt, auto en stekkers inbegrepen."],
-      ["Berekening", "afname − teruglevering + wat de batterij aan het huis levert − wat de batterij uit het stopcontact laadt"],
       ["Nu", calc],
-      ["Periode", LIVE_PERIOD()],
-      ["Bron", "slimme meter en thuisbatterij"],
-    ]) + link("day", "Verbruik vandaag in Grafana") };
+      ["Vandaag", t && isNum(t.consumption_kwh) ? `${num(t.consumption_kwh)} kWh${isNum(ySoFar) ? `; gisteren tot dezelfde tijd ${num(ySoFar)} kWh` : ""}` : "—"],
+      ["Vannacht", night ? `${fmt[0].format(night.w)} W gemiddeld 01:00–05:00${night.car ? " · <b>de auto laadde</b> (de meter zag de lader)" : " · basislast"}` : "—: 01:00–05:00 is nog niet voorbij"],
+      ["Stekkers", plugs.length ? `samen ${num(plugSum, 2)} kWh vandaag${t && isNum(t.consumption_kwh) && t.consumption_kwh > 0 ? ` (${fmt[0].format((plugSum / t.consumption_kwh) * 100)} % van het verbruik)` : ""}; tik op een stekker voor de details` : "—"],
+    ]) + chartBlock("huis", "Vandaag per uur", `${sq("var(--huis)", "vandaag")}${dash("gisteren")}<span>kWh per uur</span>`) + rows([
+      ["Berekening", "afname − teruglevering + wat de batterij aan het huis levert − wat de batterij uit het stopcontact laadt"],
+      ["Per uur", "het gemiddelde vermogen per uur, het lopende uur tot nu; opgeteld een paar procent onder het dagtotaal, dat uit de tellers komt"],
+      ["Auto vannacht", "herkend aan de meter: een uur van 1,5 kW of meer, of een sprong van 0,8 kW tussen de uren (zoals op Meer)"],
+      ["Periode", `nu: ${LIVE_PERIOD()}; per uur: vandaag 00:00 – nu, elke minuut nieuw`],
+      ["Bron", "slimme meter, thuisbatterij en meetstekkers"],
+    ]) + link("day", "Verbruik vandaag in Grafana"), after: drawChart("huis", { bars: [{ key: "house_kwh", color: "var(--huis)", label: "vandaag" }], tick: { key: "y_house_kwh", label: "gisteren" } }) };
   },
   netnu() {
-    const d = state.live?.data;
+    const d = state.live?.data, x = state.detail?.data, t = state.today?.data;
+    maybeFetchDetail();
     const g = d?.grid_w;
     const what = !isNum(g) ? "—" : g >= 10 ? `afname ${plain(power(g))}` : g <= -10 ? `teruglevering ${plain(power(-g))}` : "bijna niets";
     return { title: `Net · ${what}`, body: rows([
       ["Wat", "Stroom van of naar het net. Rood: je neemt af (lijn naar het huis, of naar de batterij als die uit het stopcontact laadt). Groen: je levert zonnestroom terug."],
-      ["Periode", LIVE_PERIOD()],
-      ["Bron", "slimme meter (P1)"],
-    ]) + link("day", "Net vandaag in Grafana") };
+      ["Vandaag", t && isNum(t.import_kwh) ? `afgenomen ${num(t.import_kwh)} kWh (${eur(t.import_eur)}) · teruggeleverd ${num(t.export_kwh)} kWh (${eur(t.export_eur)})` : "—"],
+      ["Meeste afname", peakHour(x?.hours, "import_kwh", "kWh", 2)],
+      ["Meeste terug", peakHour(x?.hours, "export_kwh", "kWh", 2)],
+    ]) + chartBlock("net", "Vandaag per uur", `${sq("var(--uit)", "afgenomen")}${sq("var(--eigen)", "teruggeleverd (onder de lijn)")}<span>kWh per uur</span>`) + rows([
+      ["Per uur", "uit de tellers van de slimme meter: de stand aan het begin van het volgende uur − die aan het begin van dit uur"],
+      ["Periode", `nu: ${LIVE_PERIOD()}; per uur: vandaag 00:00 – nu, elke minuut nieuw`],
+      ["Bron", "slimme meter (P1); bedragen tegen de contractprijs"],
+    ]) + link("day", "Net vandaag in Grafana"), after: drawChart("net", { bars: [{ key: "import_kwh", color: "var(--uit)", label: "afgenomen" }, { key: "export_kwh", color: "var(--eigen)", neg: true, label: "teruggeleverd" }], digits: 1 }) };
   },
   gas() {
-    const t = state.today?.data;
+    const t = state.today?.data, x = state.detail?.data;
+    maybeFetchDetail();
     return { title: `Gas vandaag · ${t && isNum(t.gas_m3) ? fmt[2].format(t.gas_m3) + " m³" : "—"}`, body: rows([
-      ["Wat", "Gasverbruik vandaag."],
-      ["Berekening", "stand van de gasmeter nu − stand om 00:00"],
+      ["Wat", "Gasverbruik vandaag, en wanneer: de verwarming, warm water en koken."],
       ["Kosten", t && isNum(t.gas_eur) ? `${eur(t.gas_eur)} (contractprijs)` : "—"],
+      ["Meeste gas", peakHour(x?.hours, "gas_m3", "m³", 2)],
+      ["Buiten", outdoorRange()],
+    ]) + chartBlock("gas", "Vandaag per uur", `${sq("var(--gas)", "gas (m³ per uur)")}${lineLg("buiten (°C, rechts)", "var(--muted)")}`) + rows([
+      ["Berekening", "stand van de gasmeter nu − stand om 00:00; per uur de stand aan het begin van het volgende uur − die aan het begin van dit uur"],
       ["Periode", TODAY_PERIOD + "; de gasmeter meldt zich om de 5 minuten"],
-      ["Bron", "gasmeter via de slimme meter"],
-    ]) + link("period", "Gas in Grafana") };
+      ["Bron", "gasmeter via de slimme meter; buitentemperatuur Buienradar, meetstation Westdorpe"],
+    ]) + link("period", "Gas in Grafana"), after: drawChart("gas", { bars: [{ key: "gas_m3", color: "var(--gas)", label: "gas m³" }], line: { points: outdoorPoints(), color: "var(--muted)" }, digits: 1 }) };
   },
   buiten() {
     const d = state.live?.data;
+    maybeFetchDetail();
     return { title: `Buiten · ${d && isNum(d.outdoor_c) ? fmt[1].format(d.outdoor_c) + " °C" : "—"}`, body: rows([
       ["Wat", "De buitentemperatuur van het weerstation in de buurt."],
+      ["Vandaag", outdoorRange()],
+    ]) + chartBlock("buiten", "Vandaag", `${lineLg("buiten (°C, rechts)", "var(--muted)")}${sq("var(--gas)", "gas (m³ per uur)")}`) + rows([
       ["Periode", d?.outdoor_time ? `meting van ${hm(d.outdoor_time)}; er komt er elke 10 minuten een` : "geen meting in de laatste 3 uur, daarom “—”"],
       ["Bron", "Buienradar, meetstation Westdorpe (elke 10 minuten opgehaald)"],
       ["Waarom niet de sensor bij de voordeur", "die hangt tegen het huis en wordt in de zon veel te warm"],
-    ]) };
+    ]), after: drawChart("buiten", { bars: [{ key: "gas_m3", color: "var(--gas)", label: "gas m³" }], line: { points: outdoorPoints(), color: "var(--muted)" }, digits: 1 }) };
   },
   plugs() {
-    const d = state.live?.data;
-    const list = (d?.plugs || []).map((p) => `<li>${esc(plugLabel(p.name))}: ${plain(power(p.w))} <span style="color:var(--muted)">(${hm(p.time)})</span></li>`).join("");
+    const d = state.live?.data, x = state.detail?.data;
+    maybeFetchDetail();
+    const live = Object.fromEntries((d?.plugs || []).map((p) => [p.name, p]));
+    const day = Object.fromEntries((x?.plugs || []).map((p) => [p.name, p]));
+    const names = [...new Set([...Object.keys(live), ...Object.keys(day)])].sort((a, b) => plugLabel(a).localeCompare(plugLabel(b)));
+    const max = Math.max(1, ...Object.values(day).flatMap((p) => (p.w || []).filter(isNum)));
+    const vs = (p) => (p && isNum(p.usual_sofar_kwh) ? `<small>gewoonlijk ${fmt[2].format(p.usual_sofar_kwh)}</small>${isNum(p.usual_kwh) ? `<small>hele dag ${fmt[2].format(p.usual_kwh)}</small>` : ""}` : "");
+    const table = names.length ? `<table class="t27 tplugday"><thead><tr><th></th><th>nu</th><th>vandaag kWh</th><th>per uur</th></tr></thead><tbody>${names.map((n) => {
+      const l = live[n], p = day[n];
+      return `<tr><th scope="row">${esc(plugLabel(n))}</th><td>${l ? plain(power(l.w)) : "—"}</td><td>${p && isNum(p.today_kwh) ? fmt[2].format(p.today_kwh) : "—"}${vs(p)}</td><td>${p ? plugSpark(p.w, max) : ""}</td></tr>`;
+    }).join("")}</tbody></table>` : "<p>Geen stekker meldde zich in de laatste 15 minuten.</p>";
     return { title: "Stekkers", body: rows([
       ["Wat", "Losse apparaten met een meetstekker. Ze zitten al in het verbruik van het huis, niet erbovenop."],
-      ["Periode", "live; elke stekker meldt zich op zijn eigen moment, de tijd staat erachter"],
+    ]) + table + rows([
+      ["Gewoonlijk", "wat die stekker de laatste 14 dagen tot dezelfde tijd gebruikte (de mediaan), zodat je het met vandaag kunt vergelijken; daarachter een hele dag"],
+      ["Per uur", "gemiddeld vermogen per uur vandaag, 00:00 – 24:00, alle stekkers op dezelfde schaal (hoogste uur: " + plain(power(max)) + ")"],
+      ["Periode", "nu: live, elke stekker meldt zich op zijn eigen moment; vandaag: 00:00 – nu, elke minuut nieuw"],
       ["Bron", "Zigbee-meetstekkers"],
-    ]) + (list ? `<ul>${list}</ul>` : "<p>Geen stekker meldde zich in de laatste 15 minuten.</p>") + link("plugs", "Stekkers in Grafana") };
+    ]) + link("plugs", "Stekkers in Grafana") };
   },
   opgewekt() {
     const t = state.today?.data;
@@ -1540,6 +1582,122 @@ function solarChart(day, width) {
     return `<g><title>${hour}:00 · ${tip}</title><rect x="${f1(cx - slot / 2)}" y="${T}" width="${f1(slot)}" height="${H - T - B}" fill="transparent"/>${parts}</g>${label}`;
   }).join("");
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Zon per string per uur, vandaag">${grid.join("")}${bars}</svg>`;
+}
+
+// ---------- today per hour behind the Huis, Net, Gas, Buiten and plug sheets (/api/detail) ----------
+// Read on demand like the Zon sheet: when one of these sheets is drawn and the data is older than
+// DETAIL_INTERVAL; every attempt counts, so a failing read is retried after the interval.
+state.detailAt = 0;
+let detailBusy = false;
+async function fetchDetail() {
+  if (detailBusy) return;
+  detailBusy = true;
+  state.detailAt = Date.now();
+  try {
+    const r = await fetch("/api/detail", { cache: "no-store", credentials: "same-origin" });
+    if (r.ok) state.detail = await r.json();
+  } catch { /* offline: keep what we have */ } finally { detailBusy = false; }
+  refreshSheet();
+}
+function maybeFetchDetail() {
+  if (Date.now() - state.detailAt > (state.config.detailInterval ?? 60) * 1000) fetchDetail();
+}
+// The Batterij sheet reuses the Batterij screen's data (/api/battery).
+state.batteryAt = 0;
+function maybeFetchBattery() {
+  if (Date.now() - state.batteryAt > (state.config.batteryInterval ?? 60) * 1000) { state.batteryAt = Date.now(); fetchBattery(); }
+}
+
+const hourRange = (iso) => { const a = hm(iso); return `${a}–${String((+a.slice(0, 2) + 1) % 24).padStart(2, "0")}:00`; };
+// The hour of the day's rows with the highest value, as "18:00–19:00 · 1,2 kWh".
+function peakHour(hours, key, u, d = 1) {
+  const best = (hours || []).filter((h) => isNum(h[key])).reduce((a, h) => (!a || h[key] > a[key] ? h : a), null);
+  return best && best[key] >= 0.5 * 10 ** -d ? `${hourRange(best.hour)} · ${fmt[d].format(best[key])} ${u}` : "—";
+}
+
+// One chart for a day per hour. bars: [{key, color, neg}] (a neg bar goes below zero, e.g. export);
+// tick: {key} a dashed mark per hour (yesterday); line: {points: [{time, v}], color, unit} on its own
+// axis at the right (outdoor temperature). x runs over the whole day, so the rest of today is empty.
+function dayChart(day, { bars, tick, line, width, digits = 1 }) {
+  if (!day) return '<p class="empty">Laden…</p>';
+  const hours = day.hours || [];
+  const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(200, Math.max(150, W * 0.32)));
+  const L = 38, R = line ? 34 : 6, T = 10, B = 24;
+  const vals = (sign) => hours.flatMap((h) => [...bars.filter((b) => !!b.neg === sign).map((b) => h[b.key]), ...(tick && !sign ? [h[tick.key]] : [])]).filter(isNum);
+  const top0 = Math.max(0, ...vals(false));
+  let bot0 = Math.max(0, ...vals(true));
+  if (bot0 < top0 * 0.02) bot0 = 0; // a few Wh of export doesn't earn a band below zero
+  const span = Math.max(top0 + bot0, 0.1);
+  const step = [0.05, 0.1, 0.25, 0.5, 1, 2, 2.5, 5, 10].find((s) => span / s <= 5) || 10;
+  const top = Math.max(step, Math.ceil(top0 / step) * step), bot = Math.ceil(bot0 / step) * step;
+  const y = (v) => T + ((top - v) / (top + bot)) * (H - T - B);
+  const slot = (W - L - R) / hours.length;
+  const f1 = (n) => n.toFixed(1);
+  const dg = (String(step).split(".")[1] || "").length; // 0.25 -> 2 decimals, 0.5 -> 1, 2 -> 0
+  const grid = [];
+  for (let v = -bot; v <= top + 1e-9; v += step) grid.push(`<line x1="${L}" x2="${W - R}" y1="${f1(y(v))}" y2="${f1(y(v))}" class="g"/><text x="${L - 6}" y="${f1(y(v) + 4)}" text-anchor="end" class="ax">${fmt[dg].format(Math.abs(v))}</text>`);
+  const every = Math.max(3, Math.ceil(28 / slot));
+  const n = bars.filter((b) => !b.neg).length || 1;
+  const bw = Math.max(2, Math.min(14, (slot * 0.7) / n));
+  const cols = hours.map((h, i) => {
+    const cx = L + slot * (i + 0.5);
+    const hr = hm(h.hour).slice(0, 2);
+    const label = (+hr) % every === 0 ? `<text x="${f1(cx)}" y="${H - 6}" text-anchor="middle" class="ax">${hr}</text>` : "";
+    let k = 0;
+    const rects = bars.map((b) => {
+      const v = h[b.key];
+      if (!isNum(v) || v <= 0) { if (!b.neg) k++; return ""; }
+      const x = b.neg ? cx - bw / 2 : cx - (n * bw) / 2 + (k++) * bw;
+      const y0 = y(0), y1 = b.neg ? y(-v) : y(v);
+      return `<rect x="${f1(x)}" y="${f1(Math.min(y0, y1))}" width="${f1(bw - 1)}" height="${f1(Math.abs(y1 - y0))}" rx="1.5" fill="${b.color}"/>`;
+    }).join("");
+    const t = tick && isNum(h[tick.key]) && h[tick.key] > 0 ? `<line x1="${f1(cx - (n * bw) / 2 - 1)}" x2="${f1(cx + (n * bw) / 2)}" y1="${f1(y(h[tick.key]))}" y2="${f1(y(h[tick.key]))}" class="fc-tick"/>` : "";
+    const tip = [...bars.map((b) => `${b.label} ${isNum(h[b.key]) ? fmt[digits + 1].format(h[b.key]) : "—"}`), ...(tick ? [`${tick.label} ${isNum(h[tick.key]) ? fmt[digits + 1].format(h[tick.key]) : "—"}`] : [])].join(" · ");
+    return `<g><title>${hourRange(h.hour)} · ${tip}</title><rect x="${f1(cx - slot / 2)}" y="${T}" width="${f1(slot)}" height="${H - T - B}" fill="transparent"/>${rects}${t}</g>${label}`;
+  }).join("");
+  let lineSvg = "";
+  const pts = (line?.points || []).filter((p) => isNum(p.v));
+  if (pts.length) {
+    const t0 = new Date(day.day_start).getTime(), t1 = new Date(day.day_end).getTime();
+    const lo = Math.floor(Math.min(...pts.map((p) => p.v)) - 1), hi = Math.ceil(Math.max(...pts.map((p) => p.v)) + 1);
+    const ly = (v) => T + ((hi - v) / (hi - lo)) * (H - T - B);
+    const lx = (t) => L + ((new Date(t).getTime() - t0) / (t1 - t0)) * (W - L - R);
+    const d = pts.map((p, i) => `${i ? "L" : "M"}${f1(lx(p.time))} ${f1(ly(p.v))}`).join("");
+    const axis = [hi, Math.round((hi + lo) / 2), lo].map((v) => `<text x="${W - R + 4}" y="${f1(ly(v) + 4)}" class="ax">${fmt[0].format(v)}°</text>`).join("");
+    lineSvg = `<path d="${d}" fill="none" stroke="${line.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${axis}`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Vandaag per uur">${grid.join("")}<line x1="${L}" x2="${W - R}" y1="${f1(y(0))}" y2="${f1(y(0))}" class="g" style="stroke:var(--muted);opacity:.5"/>${cols}${lineSvg}</svg>`;
+}
+
+// A chart block in a sheet: heading, the chart (drawn in after(), at the sheet's width) and a legend.
+const chartBlock = (key, title, legend) => `<h4 class="sub">${title}</h4><div class="chart" data-dchart="${key}"></div><p class="legend">${legend}</p>`;
+const drawChart = (key, opts) => () => { const box = $(`[data-dchart="${key}"]`); if (box) box.innerHTML = dayChart(state.detail?.data, { ...opts, width: box.clientWidth }); };
+const sq = (c, t) => `<span><i class="sq" style="--c:${c}"></i>${t}</span>`;
+const dash = (t, c = "var(--fg)") => `<span><i class="ln dash" style="border-top-color:${c}"></i>${t}</span>`;
+const lineLg = (t, c) => `<span><i class="ln" style="--c:${c}"></i>${t}</span>`;
+const outdoorPoints = () => (state.detail?.data?.outdoor || []).map((p) => ({ time: p.time, v: p.c }));
+function outdoorRange() {
+  const pts = state.detail?.data?.outdoor || [];
+  if (!pts.length) return "—";
+  const lo = pts.reduce((a, p) => (p.c < a.c ? p : a)), hi = pts.reduce((a, p) => (p.c > a.c ? p : a));
+  return `laagst ${fmt[1].format(lo.c)} °C (${hm(lo.time)}) · hoogst ${fmt[1].format(hi.c)} °C (${hm(hi.time)})`;
+}
+// Yesterday up to the same time of day: whole hours that have passed, the running hour pro rata.
+function yesterdaySoFar(hours) {
+  const now = Date.now();
+  let sum = 0, any = false;
+  for (const h of hours || []) {
+    const t = new Date(h.hour).getTime();
+    if (!isNum(h.y_house_kwh) || t >= now) continue;
+    sum += h.y_house_kwh * Math.min(1, (now - t) / 3600000); any = true;
+  }
+  return any ? sum : null;
+}
+// Per plug: 24 small bars of mean power per hour today.
+function plugSpark(w, max) {
+  const n = (w || []).length || 24, W = 96, H = 22, bw = W / n;
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" aria-hidden="true">${(w || []).map((v, i) => (isNum(v) && v > 0 && max > 0
+    ? `<rect x="${(i * bw).toFixed(1)}" y="${(H - (v / max) * H).toFixed(1)}" width="${Math.max(1, bw - 1).toFixed(1)}" height="${((v / max) * H).toFixed(1)}" fill="var(--huis)"/>` : "")).join("")}</svg>`;
 }
 
 // ---------- screens, by the address's #hash (Thuis is the default) ----------
