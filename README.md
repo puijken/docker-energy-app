@@ -183,9 +183,9 @@ GRANT EXECUTE ON FUNCTION app_history(text, date), app_history_soc(text, date), 
 | `/` | the page |
 | `/api/stream` | Server-Sent Events: `live` and `today` events, a comment line every 15 s |
 | `/api/live`, `/api/today` | the same data as JSON (re-read at most every few seconds) |
-| `/api/history?unit=day\|week\|month\|year&date=YYYY-MM-DD` | the Historie screen for that period (400 for another unit or a bad date) |
+| `/api/history?unit=day\|week\|month\|year&date=YYYY-MM-DD` | the Historie screen for that period (400 for another unit or a bad date); the page also asks for the period before the shown one in advance, so "vorige" answers from the cache |
 | `/api/contracts` | the Contracten page (re-read at most every 5 minutes) |
-| `/api/money` | the Geld screen (re-read at most every `MONEY_INTERVAL` seconds) |
+| `/api/money` | the Geld screen (re-read at most every `MONEY_INTERVAL` seconds); the page warms it 3 s after opening, except on the wall screen |
 | `/api/meer` | the Meer screen (re-read at most every `MONEY_INTERVAL` seconds) |
 | `/api/battery` | the Batterij screen: today's charge level, the summary row, efficiency per band, the day's start and end (re-read at most every `BATTERY_INTERVAL` seconds) |
 | `/api/config` | links, plug labels, intervals, time zone |

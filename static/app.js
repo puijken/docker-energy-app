@@ -1117,7 +1117,20 @@ async function fetchHistory() {
     const r = await fetch(`/api/history?${q}`, { cache: "no-store", credentials: "same-origin" });
     if (r.ok && seq === histSeq) { const j = await r.json(); if (j.data) state.hist.data = j.data; }
   } catch { /* offline: keep what we have */ }
-  if (seq === histSeq) { renderHistory(); refreshSheet(); }
+  if (seq === histSeq) { renderHistory(); refreshSheet(); prefetchPrevHistory(); }
+}
+// Ask the server for the period before the shown one, so "vorige" answers from its cache (an uncached
+// period costs ~0.2 s of SQL). Once per shown period, not on the running period's minute refresh, and
+// not before the first day of data. The answer is not used here; the server keeps it 5 minutes.
+let histPrefetched = "";
+function prefetchPrevHistory() {
+  const h = state.hist.data;
+  if (!h || new Date(h.start) <= new Date(h.first_day)) return;
+  const key = `${h.unit} ${h.start}`;
+  if (key === histPrefetched) return;
+  histPrefetched = key;
+  const q = new URLSearchParams({ unit: h.unit, date: histShift(h, -1) });
+  fetch(`/api/history?${q}`, { cache: "no-store", credentials: "same-origin" }).catch(() => {});
 }
 function histGo(anchor) { state.hist.anchor = anchor; fetchHistory(); }
 document.addEventListener("click", (e) => {
@@ -1864,5 +1877,12 @@ async function start() {
   connect();
   setInterval(() => { renderFreshness(); }, 1000);
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+  // Warm the server's cache for Geld (app_money ~0.55 s, cached 5 min) a few seconds after opening, so
+  // the tab answers at once. Not on the wall screen, which never shows Geld; not when Geld is already open.
+  if (!wallMode) setTimeout(() => {
+    if (currentScreen() === "geld") return;
+    for (const url of ["/api/money", `/api/history?${new URLSearchParams({ unit: "year", date: todayIso() })}`])
+      fetch(url, { cache: "no-store", credentials: "same-origin" }).catch(() => {});
+  }, 3000);
 }
 start();
