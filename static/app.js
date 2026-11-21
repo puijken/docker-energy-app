@@ -724,7 +724,7 @@ const SHEETS = {
     return { title: `Basislast · ${u?.last ? plain(watt(u.last.w)) : "—"}`, body: rows([
       ["Wat", "Wat het huis 's nachts gebruikt als niemand iets aanzet: alles wat altijd aan staat, zoals koelkast, router, server en stand-by. Een lagere basislast scheelt het hele jaar door."],
       ["Berekening", "per nacht het gemiddelde verbruik van het huis tussen 01:00 en 05:00 (net plus wat de batterij aan het huis levert); “gewoonlijk” is de mediaan van de laatste 30 nachten, zodat een uitschieter niet meetelt"],
-      ["Auto", `nachten waarin de auto thuis laadde (grijs in de grafiek${cars ? `, ${cars} van de laatste ${u.nights.length}` : ""}) tellen niet mee: de lader is ook verbruik van het huis. Laadbeurten worden in delen ingelezen, dus een recente laadnacht kan nog blauw staan; de mediaan laat die buiten beschouwing.`],
+      ["Auto", `nachten waarin de auto thuis laadde (grijs in de grafiek${cars ? `, ${cars} van de laatste ${u.nights.length}` : ""}) tellen niet mee: de lader is ook verbruik van het huis. Herkend aan de meter: een uur van 1,5 kW of meer (zo hoog komt de basislast nooit; de lader voegt 1,6–1,8 kW toe) of een sprong van 0,8 kW tussen de uren, dus ook als de laadbeurt nog niet is ingelezen.`],
       ["Vorig jaar", u && isNum(u.ly_median_30) ? `${plain(watt(u.ly_median_30))}: dezelfde 30 nachten een jaar eerder, op dezelfde manier` : "te weinig nachten zonder laden in dezelfde periode vorig jaar"],
       ["Stekkers", "de tabel eronder splitst vannacht uit: wat elke meetstekker gemiddeld deed, en wat er voor de rest van het huis overbleef"],
       ["Periode", "de laatste 60 nachten; vannacht = de nacht naar vandaag toe"],
