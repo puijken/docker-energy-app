@@ -782,13 +782,15 @@ const SHEETS = {
     const place = (p) => (p ? `${plain(kwh(p.kwh, 0))} in ${p.sessions} keer` : "niet geladen");
     const period = h ? `${histLabel(h)}${h.running ? ", tot nu" : ""}` : "—";
     const ls = c?.last_session;
-    return { title: `Auto · ${c && isNum(c.net_eur) ? eur(c.net_eur) : "—"}`, body: rows([
+    const chart = carChart(h);
+    return { title: `Auto · ${c && isNum(c.net_eur) ? eur(c.net_eur) : "—"}`, after: drawHistChart(chart), body: rows([
       ["Wat", "Waar de auto in deze periode laadde, en wat thuis laden opleverde. Een laadbeurt telt in de periode waarin hij begon."],
       ["Thuis", carNoData(c) || (carHome(c) === "none" ? `nog niet binnen: de nieuwste thuissessie is van ${dmyTs(c.last_home)}`
         : `${home ? `${place(home)}, waarvan ${plain(kwh(home.solar_kwh, 0))} uit eigen zon${share(home)}` : "niet geladen"}${carHome(c) === "part" ? `; alleen tot ${dmyTs(c.last_home)}, de rest komt nog binnen` : ""}`)],
       ["Vergoed − kosten", home ? `${eur(home.reimbursed_eur)} vergoed − ${eur(home.real_cost_eur)} werkelijke kosten (stroom van het net tegen je contractprijs, eigen zon tegen wat die zon anders had opgeleverd) = ${eur(c.net_eur)}` : "—"],
       ["Werk", now.work ? `${place(now.work)}, ${eur(now.work.billed_eur)} op de laadpas` : "niet geladen"],
       ["Onderweg", now.public ? `${place(now.public)}, ${eur(now.public.billed_eur)} op de laadpas` : "niet geladen"],
+    ]) + histChartBlock(h, chart) + rows([
       ["Vorig jaar", !ly ? "—: van toen zijn er nog geen laadgegevens" : `thuis ${lyHome ? `${place(lyHome)}, eigen zon ${plain(kwh(lyHome.solar_kwh, 0))}${share(lyHome)}, vergoed − kosten ${eur(c.ly_net_eur)}` : "niet geladen"} · werk ${ly.work ? plain(kwh(ly.work.kwh, 0)) : "—"} · onderweg ${ly.public ? plain(kwh(ly.public.kwh, 0)) : "—"}`],
       ["Deze periode", period],
       ["Thuis bijgewerkt", c?.last_home ? `de laadpaal-export komt in pakketjes binnen; de nieuwste thuissessie is van ${dmyTs(c.last_home)}` : "—"],
@@ -810,15 +812,19 @@ function histSheet(title, key, unitName, what, how, source, key2) {
   const val = (o) => (key2 ? `${f(o[key])} · ${f(o[key2])}` : f(o[key]));
   const period = h ? `${histLabel(h)}${h.running ? ", tot nu" : ""}` : "—";
   const ly = h ? `${new Date(h.ly_start).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric", timeZone: TZ })} – ${new Date(new Date(h.ly_compare_end).getTime() - 3600000).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric", timeZone: TZ })}` : "—";
+  const c = h && HIST_CHARTS[SHEET_OF_KEY[key]]?.(h);
   return { title: `${title} · ${h ? val(T) : "—"}`, body: rows([
     ["Wat", what],
-    ["Berekening", how],
     ["Deze periode", `${period}: ${h ? val(T) : "—"}`],
     ["Vorig jaar", `${ly}: ${h ? val(Y) : "—"}`],
-    h?.bucket === "hour" && ["Per uur", "de staafjes per uur komen uit het gemiddelde vermogen per uur; het dagtotaal uit de tellers, dus ze kunnen een paar procent verschillen"],
+  ]) + histChartBlock(h, c) + rows([
+    ["Berekening", how],
+    h?.bucket === "hour" && ["Per uur", c?.note || "de staafjes per uur komen uit het gemiddelde vermogen per uur; het dagtotaal uit de tellers, dus ze kunnen een paar procent verschillen"],
     ["Bron", source],
-  ]) + link("period", "Periode in Grafana") };
+  ]) + link("period", "Periode in Grafana"), after: drawHistChart(c) };
 }
+// Which chart (HIST_CHARTS) belongs to a histSheet, by its key.
+const SHEET_OF_KEY = { generated_kwh: "hopgewekt", consumption_kwh: "hverbruik", self_sufficiency: "hzelfv", self_consumption: "hbenut", import_kwh: "hnet", net_eur: "hrekening", gas_m3: "hgas", degree_days: "hgraad", gas_per_degree_day: "hgpg" };
 
 // Sheet for this month's or this year's bill.
 function moneySheet(k, title) {
@@ -988,6 +994,193 @@ function histChart(h, key, color, width, digits) {
   });
   return `<svg viewBox="0 0 ${W} ${H}" role="img">${grid}${bars}<path d="${line}" fill="none" stroke="var(--ref)" stroke-width="1.5" stroke-dasharray="4 3"/>${dots}${ticks}</svg>`;
 }
+
+// ---------- charts in the Historie sheets: one chart of the selected period per sheet ----------
+const bucketWord = (h) => (h?.bucket === "hour" ? "Per uur" : h?.bucket === "month" ? "Per maand" : "Per dag");
+const clamp01 = (x) => (isNum(x) ? Math.min(1, Math.max(0, x)) : null);
+// Values per slot of the period (rows with t, positioned like histChart); rows in one slot are summed.
+function histSlots(h, rows, start, get) {
+  const n = slotCount(h), out = new Array(n).fill(null);
+  for (const b of rows || []) {
+    const i = slotOf(h, b.t, start), v = get(b);
+    if (i >= 0 && i < n && isNum(v)) out[i] = (out[i] ?? 0) + v;
+  }
+  return out;
+}
+function niceAxis(min, max) {
+  if (max - min < 1e-9) max = min + 1;
+  const span = max - min;
+  const step = [1, 2, 2.5, 5, 10].map((f) => f * 10 ** Math.floor(Math.log10(span / 3))).find((s) => span / s <= 4) || span / 3;
+  const dg = Math.min(2, (String(+step.toPrecision(6)).split(".")[1] || "").length);
+  return { step, dg, top: Math.ceil(max / step - 1e-9) * step, floor: Math.floor(min / step + 1e-9) * step };
+}
+function slotTicks(h, n, cx, W, H) {
+  const every = h.bucket === "month" ? (W < 420 ? 2 : 1) : h.bucket === "hour" ? (W < 420 ? 6 : 3) : h.unit === "week" ? 1 : W < 420 ? 7 : 5;
+  return Array.from({ length: n }, (_, i) => i).filter((i) => h.unit === "month" ? (i === 0 || (i + 1) % every === 0) : i % every === 0)
+    .map((i) => `<text x="${cx(i).toFixed(1)}" y="${H - 6}" text-anchor="middle" class="ax">${slotLabel(h, i)}</text>`).join("");
+}
+// Bars per slot, stacked (a neg series, or a negative value, goes below zero); ly: last year's same
+// period as a grey dashed line with dots; mark: a dark tick per slot (e.g. the total of a stack);
+// line: a series on its own axis at the right (degree days). pct: values are 0-1, axis 0-100 %.
+// absAxis: labels below zero without a minus (export is an amount below the line).
+function periodChart(h, o, width) {
+  const n = slotCount(h), rows = o.rows || h.buckets, f = o.fmt;
+  const series = o.bars.map((b) => histSlots(h, rows, h.start, b.get));
+  const lyV = o.ly ? histSlots(h, h.ly_buckets, h.ly_start, o.ly.get) : [];
+  const markV = o.mark ? histSlots(h, rows, h.start, o.mark.get) : [];
+  const lineV = o.line ? histSlots(h, rows, h.start, o.line.get) : [];
+  if (![...series.flat(), ...lyV, ...lineV].some(isNum)) return '<p class="empty">Geen gegevens in deze periode.</p>';
+  const signed = (k, i) => { const v = series[k][i]; return isNum(v) ? (o.bars[k].neg ? -v : v) : null; };
+  let max = 0, min = 0;
+  for (let i = 0; i < n; i++) {
+    let up = 0, dn = 0;
+    o.bars.forEach((_, k) => { const v = signed(k, i); if (v > 0) up += v; else if (v < 0) dn += v; });
+    max = Math.max(max, up, lyV[i] ?? 0, markV[i] ?? 0); min = Math.min(min, dn, lyV[i] ?? 0, markV[i] ?? 0);
+  }
+  if (o.pct) { min = 0; max = 1; }
+  if (-min < max * 0.02) min = 0; // a few Wh of export doesn't earn a band below zero (as dayChart)
+  const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(220, Math.max(160, W * 0.34)));
+  const L = 44, R = o.line ? 36 : 6, T = 10, B = 24;
+  const ax = o.pct ? { step: 0.25, dg: 0, top: 1, floor: 0 } : niceAxis(min, max);
+  const y = (v) => T + ((ax.top - v) / (ax.top - ax.floor)) * (H - T - B);
+  const slotW = (W - L - R) / n, cx = (i) => L + slotW * (i + 0.5);
+  const bw = Math.max(2, Math.min(24, slotW * 0.62));
+  const f1 = (x) => x.toFixed(1);
+  let grid = "";
+  for (let v = ax.floor; v <= ax.top + 1e-9; v += ax.step) grid += `<line x1="${L}" x2="${W - R}" y1="${f1(y(v))}" y2="${f1(y(v))}" class="g"/><text x="${L - 6}" y="${f1(y(v) + 4)}" text-anchor="end" class="ax">${o.pct ? fmt[0].format(v * 100) + "%" : fmt[ax.dg].format(Math.abs(v) < 1e-9 ? 0 : o.absAxis ? Math.abs(v) : v)}</text>`;
+  const cols = Array.from({ length: n }, (_, i) => {
+    let up = 0, dn = 0;
+    const rects = o.bars.map((b, k) => {
+      const v = signed(k, i);
+      if (!isNum(v) || Math.abs(v) < 1e-9) return "";
+      const from = v > 0 ? up : dn, to = from + v;
+      if (v > 0) up = to; else dn = to;
+      return `<rect x="${f1(cx(i) - bw / 2)}" y="${f1(Math.min(y(from), y(to)))}" width="${f1(bw)}" height="${f1(Math.max(1, Math.abs(y(to) - y(from))))}" rx="1.5" fill="${b.color}"/>`;
+    }).join("");
+    const mk = isNum(markV[i]) ? `<line x1="${f1(cx(i) - bw / 2 - 2)}" x2="${f1(cx(i) + bw / 2 + 2)}" y1="${f1(y(markV[i]))}" y2="${f1(y(markV[i]))}" stroke="var(--fg)" stroke-width="2"/>` : "";
+    const tip = [...o.bars.map((b, k) => isNum(series[k][i]) ? `${b.label} ${f(series[k][i])}` : null),
+      o.mark && isNum(markV[i]) ? `${o.mark.label} ${f(markV[i])}` : null,
+      o.line && isNum(lineV[i]) ? `${o.line.label} ${o.line.fmt(lineV[i])}` : null,
+      o.ly && isNum(lyV[i]) ? `vorig jaar ${f(lyV[i])}` : null].filter(Boolean).join(" · ");
+    return tip ? `<g><title>${slotLabel(h, i)}: ${tip}</title><rect x="${f1(cx(i) - slotW / 2)}" y="${T}" width="${f1(slotW)}" height="${H - T - B}" fill="transparent"/>${rects}${mk}</g>` : "";
+  }).join("");
+  const path = (vals, yf) => { let d = ""; vals.forEach((v, i) => { if (isNum(v)) d += `${d && isNum(vals[i - 1]) ? "L" : "M"}${f1(cx(i))} ${f1(yf(v))}`; }); return d; };
+  let ly = "";
+  if (o.ly) ly = `<path d="${path(lyV, y)}" fill="none" stroke="var(--ref)" stroke-width="1.5" stroke-dasharray="4 3"/>` + lyV.map((v, i) => isNum(v) ? `<circle cx="${f1(cx(i))}" cy="${f1(y(v))}" r="2.5" fill="var(--ref)"/>` : "").join("");
+  let rl = "";
+  if (o.line && lineV.some(isNum)) {
+    const a2 = niceAxis(0, Math.max(...lineV.filter(isNum)));
+    const y2 = (v) => T + ((a2.top - v) / a2.top) * (H - T - B);
+    rl = `<path d="${path(lineV, y2)}" fill="none" stroke="${o.line.color}" stroke-width="2" stroke-linejoin="round"/>` +
+      lineV.map((v, i) => isNum(v) ? `<circle cx="${f1(cx(i))}" cy="${f1(y2(v))}" r="2" fill="${o.line.color}"/>` : "").join("") +
+      [a2.top, a2.top / 2, 0].map((v) => `<text x="${W - R + 4}" y="${f1(y2(v) + 4)}" class="ax">${fmt[Number.isInteger(v) ? 0 : 1].format(v)}</text>`).join("");
+  }
+  const zero = ax.floor < 0 ? `<line x1="${L}" x2="${W - R}" y1="${f1(y(0))}" y2="${f1(y(0))}" class="g" style="stroke:var(--muted);opacity:.5"/>` : "";
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">${grid}${zero}${cols}${ly}${rl}${slotTicks(h, n, cx, W, H)}</svg>`;
+}
+// Running total through the period, against last year's same period (grey dashed): ahead or behind.
+// This period's line stops at the last slot with data (a running period).
+function cumulChart(h, get, color, f, width) {
+  const n = slotCount(h);
+  const run = (vals) => {
+    let last = -1, s = 0;
+    vals.forEach((v, i) => { if (isNum(v)) last = i; });
+    return vals.map((v, i) => (i > last ? null : (s += isNum(v) ? v : 0)));
+  };
+  const now = run(histSlots(h, h.buckets, h.start, get)), ly = run(histSlots(h, h.ly_buckets, h.ly_start, get));
+  if (![...now, ...ly].some(isNum)) return '<p class="empty">Geen gegevens in deze periode.</p>';
+  const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(220, Math.max(160, W * 0.34)));
+  const L = 44, R = 6, T = 10, B = 24;
+  const ax = niceAxis(0, Math.max(...[...now, ...ly].filter(isNum)));
+  const y = (v) => T + ((ax.top - v) / ax.top) * (H - T - B);
+  const slotW = (W - L - R) / n, cx = (i) => L + slotW * (i + 0.5);
+  const f1 = (x) => x.toFixed(1);
+  let grid = "";
+  for (let v = 0; v <= ax.top + 1e-9; v += ax.step) grid += `<line x1="${L}" x2="${W - R}" y1="${f1(y(v))}" y2="${f1(y(v))}" class="g"/><text x="${L - 6}" y="${f1(y(v) + 4)}" text-anchor="end" class="ax">${fmt[ax.dg].format(v)}</text>`;
+  const path = (vals) => { let d = ""; vals.forEach((v, i) => { if (isNum(v)) d += `${d ? "L" : "M"}${f1(cx(i))} ${f1(y(v))}`; }); return d; };
+  const hits = Array.from({ length: n }, (_, i) => isNum(now[i]) || isNum(ly[i])
+    ? `<rect x="${f1(cx(i) - slotW / 2)}" y="${T}" width="${f1(slotW)}" height="${H - T - B}" fill="transparent"><title>t/m ${slotLabel(h, i)}: ${isNum(now[i]) ? f(now[i]) : "—"}${isNum(ly[i]) ? ` (vorig jaar ${f(ly[i])})` : ""}</title></rect>` : "").join("");
+  const endDot = (vals, c) => { const i = vals.map(isNum).lastIndexOf(true); return i < 0 ? "" : `<circle cx="${f1(cx(i))}" cy="${f1(y(vals[i]))}" r="3" fill="${c}"/>`; };
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">${grid}<path d="${path(ly)}" fill="none" stroke="var(--ref)" stroke-width="1.5" stroke-dasharray="4 3"/>${endDot(ly, "var(--ref)")}<path d="${path(now)}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>${endDot(now, color)}${hits}${slotTicks(h, n, cx, W, H)}</svg>`;
+}
+
+// The chart of each Historie sheet: { legend, svg(width), heading?, after?, note? } (after: a line under
+// the legend; note: how the per-hour figures are made, shown for a day instead of the general per-hour
+// row), or null when the unit has none.
+const kwhF = (h) => (x) => `${fmt[h.bucket === "hour" ? 2 : 1].format(x)} kWh`;
+const pctF = (x) => `${fmt[0].format(x * 100)} %`;
+const HIST_CHARTS = {
+  cumul: (key, color, label) => (h) => ({
+    heading: "Opgeteld door de periode",
+    legend: `${lineLg("deze periode", color)}${dash("vorig jaar")}<span>${label}</span>`,
+    svg: (w) => cumulChart(h, (b) => b[key], color, kwhF(h), w),
+    after: "Opgeteld van het begin van de periode; ligt de lijn boven de grijze, dan zit je voor op vorig jaar.",
+  }),
+  hzelfv: (h) => ({
+    legend: `${sq("var(--deel)", "deel van het verbruik uit eigen zon")}`,
+    svg: (w) => periodChart(h, { pct: true, fmt: pctF, bars: [{ label: "zelfvoorzienend", color: "var(--deel)",
+      get: (b) => (b.consumption_kwh > 0 ? clamp01((isNum(b.self_used_kwh) ? b.self_used_kwh : b.consumption_kwh - b.import_kwh) / b.consumption_kwh) : null) }] }, w),
+    note: "(verbruik − afgenomen) ÷ verbruik; het verbruik komt uit het gemiddelde vermogen, afgenomen uit de teller, dus bij weinig verbruik is een uur een paar procent onzeker",
+  }),
+  hbenut: (h) => {
+    const gmax = Math.max(0, ...(h.buckets || []).map((b) => b.generated_kwh).filter(isNum));
+    return {
+      legend: `${sq("var(--deel)", "deel van de opgewekte zon zelf benut")}<span>alleen ${h.bucket === "hour" ? "uren" : h.bucket === "month" ? "maanden" : "dagen"} met noemenswaardige opwek</span>`,
+      svg: (w) => periodChart(h, { pct: true, fmt: pctF, bars: [{ label: "zelf benut", color: "var(--deel)",
+        get: (b) => (b.generated_kwh > 0.03 * gmax && b.generated_kwh > 0 ? clamp01((b.generated_kwh - b.export_kwh) / b.generated_kwh) : null) }] }, w),
+      note: "(opgewekt − teruggeleverd) ÷ opgewekt; opgewekt uit het gemiddelde vermogen, teruggeleverd uit de teller",
+    };
+  },
+  hnet: (h) => ({
+    legend: `${sq("var(--uit)", "afgenomen")}${sq("var(--eigen)", "teruggeleverd (onder de lijn)")}<span>kWh</span>`,
+    svg: (w) => periodChart(h, { fmt: kwhF(h), absAxis: true, bars: [{ label: "afgenomen", color: "var(--uit)", get: (b) => b.import_kwh }, { label: "teruggeleverd", color: "var(--eigen)", neg: true, get: (b) => b.export_kwh }] }, w),
+    note: "uit de tellers van de slimme meter: de stand aan het begin van het volgende uur − die aan het begin van dit uur; opgeteld gelijk aan het dagtotaal",
+  }),
+  hrekening: (h) => (h.bucket === "hour" ? null : {
+    legend: `${sq("var(--uit)", "stroom")}${sq("var(--gas)", "gas")}${sq("var(--ref)", "vaste kosten")}${sq("var(--eigen)", "teruglevering (onder de lijn)")}<span><i class="ln" style="--c:var(--fg)"></i>totaal</span>${dash("totaal vorig jaar")}`,
+    svg: (w) => periodChart(h, { fmt: (x) => eur(x, 2), bars: [
+      { label: "stroom", color: "var(--uit)", get: (b) => b.import_eur }, { label: "gas", color: "var(--gas)", get: (b) => b.gas_eur },
+      { label: "vaste kosten", color: "var(--ref)", get: (b) => b.fixed_eur }, { label: "teruglevering", color: "var(--eigen)", neg: true, get: (b) => b.export_eur }],
+      mark: { label: "totaal", get: (b) => b.net_eur }, ly: { get: (b) => b.net_eur } }, w),
+  }),
+  hgas: (h) => (h.bucket === "hour" ? {
+    legend: `${sq("var(--gas)", "gas")}<span>m³ per uur</span>`,
+    svg: (w) => periodChart(h, { fmt: (x) => `${fmt[2].format(x)} m³`, bars: [{ label: "gas", color: "var(--gas)", get: (b) => b.gas_m3 }] }, w),
+    note: "uit de stand van de gasmeter (elke 5 minuten, vroeger elk half uur): de stand aan het begin van het volgende uur − die aan het begin van dit uur",
+  } : {
+    legend: `${sq("var(--gas)", "gas (m³, links)")}${lineLg("graaddagen (rechts)", "var(--accent)")}`,
+    svg: (w) => periodChart(h, { fmt: (x) => `${fmt[1].format(x)} m³`, bars: [{ label: "gas", color: "var(--gas)", get: (b) => b.gas_m3 }],
+      line: { label: "graaddagen", color: "var(--accent)", get: (b) => b.degree_days, fmt: (x) => fmt[1].format(x) } }, w),
+    after: "Volgt het gas de graaddagen, dan is het verbruik vooral verwarming; een dag zonder graaddagen heeft nog geen KNMI-waarde.",
+  }),
+  hgraad: (h) => (h.bucket === "hour" ? null : {
+    legend: `${sq("var(--accent)", "graaddagen")}${dash("vorig jaar")}`,
+    svg: (w) => periodChart(h, { fmt: (x) => fmt[1].format(x), bars: [{ label: "graaddagen", color: "var(--accent)", get: (b) => b.degree_days }], ly: { get: (b) => b.degree_days } }, w),
+  }),
+  hgpg: (h) => {
+    if (h.bucket === "hour") return null;
+    const get = (b) => (b.degree_days >= 5 ? b.gas_dd_m3 / b.degree_days : null);
+    return {
+      legend: `${sq("var(--gas)", "m³ per graaddag")}${dash("vorig jaar")}<span>alleen ${h.bucket === "month" ? "maanden" : "dagen"} met minstens 5 graaddagen</span>`,
+      svg: (w) => periodChart(h, { fmt: (x) => `${fmt[2].format(x)} m³`, bars: [{ label: "per graaddag", color: "var(--gas)", get }], ly: { get } }, w),
+    };
+  },
+};
+HIST_CHARTS.hopgewekt = HIST_CHARTS.cumul("generated_kwh", "var(--zon)", "kWh opgewekt");
+HIST_CHARTS.hverbruik = HIST_CHARTS.cumul("consumption_kwh", "var(--huis)", "kWh verbruikt");
+// The Auto sheet: kWh per day (per month for a year) and place, from app_history_car's buckets.
+function carChart(h) {
+  const c = h?.car;
+  if (!c || h.bucket === "hour" || !c.buckets) return null;
+  return {
+    legend: `${sq("var(--huis)", "thuis")}${sq("var(--deel)", "werk")}${sq("var(--oost)", "onderweg")}<span>kWh, op de dag waarop de laadbeurt begon</span>`,
+    svg: (w) => periodChart(h, { rows: c.buckets, fmt: (x) => `${fmt[1].format(x)} kWh`, bars: [
+      { label: "thuis", color: "var(--huis)", get: (b) => b.home_kwh }, { label: "werk", color: "var(--deel)", get: (b) => b.work_kwh },
+      { label: "onderweg", color: "var(--oost)", get: (b) => b.public_kwh }] }, w),
+  };
+}
+const histChartBlock = (h, c) => (c ? `<h4 class="sub">${c.heading || bucketWord(h)}</h4><div class="chart" data-hschart></div><p class="legend">${c.legend}</p>${c.after ? `<p class="legend">${c.after}</p>` : ""}` : "");
+const drawHistChart = (c) => (c ? () => { const box = $("[data-hschart]"); if (box) box.innerHTML = c.svg(box.clientWidth); } : undefined);
 
 // "vorig jaar 312 kWh (+5 %)" under a total
 function vsLastYear(now, ly, fmtFn, pctPoints) {
