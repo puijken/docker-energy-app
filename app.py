@@ -3,7 +3,7 @@
 It shows what the house is doing now and how today went, from a TimescaleDB that another service
 fills. It never talks to a device and never writes: it connects with a read-only database role and
 reads views only (app_live, app_solar_live, app_today, app_battery_savings_today, app_forecast,
-app_battery_* for the Batterij screen) and five read-only functions (app_history for Historie,
+app_battery_* for the Batterij screen) and read-only functions (app_history* for Historie,
 app_money for Geld, app_contracts for Contracten, app_meer for Meer, app_solar for the Zon sheet). All calculation rules live in those views, so the numbers match whatever else
 reads the same database.
 
@@ -241,11 +241,12 @@ class Hub:
         if hit and now - hit[0] < max_age:
             return hit[1]
         try:
-            row = await self._query_one("SELECT app_history(%(u)s, %(a)s) AS h, app_history_soc(%(u)s, %(a)s) AS s",
-                                        {"u": unit, "a": anchor})
+            row = await self._query_one("SELECT app_history(%(u)s, %(a)s) AS h, app_history_soc(%(u)s, %(a)s) AS s, "
+                                        "app_history_car(%(u)s, %(a)s) AS c", {"u": unit, "a": anchor})
             data = row["h"] if row else None
             if data is not None:
                 data["soc"] = row["s"]   # the battery's charge level for the same period (035)
+                data["car"] = row["c"]   # charging sessions in the same period and last year (039)
             result = {"ok": True, "data": data}
         except Exception as exc:
             log.warning("history read failed: %s: %s", type(exc).__name__, exc)
@@ -285,7 +286,8 @@ class Hub:
             return self.contracts
 
     async def read_meer(self) -> dict:
-        """The Meer screen (base load, plugs today, car this year, source status), from app_meer(),
+        """The Meer screen (base load, plugs today, source status; app_meer()'s car part is no longer
+        shown, the Auto card is on Historie since 039), from app_meer(),
         at most every MONEY_INTERVAL seconds."""
         async with self.lock:
             if self.meer and self.meer["ok"] and time.monotonic() - self.meer_read_at < MONEY_INTERVAL:

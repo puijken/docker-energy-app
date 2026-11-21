@@ -731,15 +731,26 @@ const SHEETS = {
       ["Bron", "slimme meter, thuisbatterij, meetstekkers, laadsessies"],
     ]) + link("day", "Verloop per dag in Grafana") };
   },
-  mauto() {
-    const car = state.meer?.car, by = Object.fromEntries((car?.places || []).map((p) => [p.kind, p]));
-    const h = by.home;
-    return { title: `Auto · ${car && isNum(car.net_eur) ? eur(car.net_eur) : "—"}`, body: rows([
-      ["Wat", "Waar de auto dit jaar laadde, en wat thuis laden opleverde."],
-      ["Thuis", h ? `${plain(kwh(h.kwh, 0))} in ${h.sessions} keer, waarvan ${plain(kwh(h.solar_kwh, 0))} uit eigen zon` : "—"],
-      ["Vergoed − kosten", h ? `${eur(h.reimbursed_eur)} vergoed − ${eur(h.real_cost_eur)} werkelijke kosten (stroom van het net tegen je contractprijs, eigen zon tegen wat die zon anders had opgeleverd) = ${eur(car.net_eur)}` : "—"],
-      ["Werk en onderweg", "geladen met de laadpas; het bedrag is wat er op de laadpas werd afgerekend"],
-      ["Periode", "1 januari tot nu"],
+  hauto() {
+    const h = state.hist.data, c = h?.car;
+    const by = (list) => Object.fromEntries((list || []).map((p) => [p.kind, p]));
+    const now = by(c?.places), ly = carLy(c) ? by(c.ly_places) : null;
+    const home = now.home, lyHome = ly?.home;
+    const share = (p) => (p && isNum(p.solar_kwh) && p.kwh ? ` (${fmt[0].format((p.solar_kwh / p.kwh) * 100)} %)` : "");
+    const place = (p) => (p ? `${plain(kwh(p.kwh, 0))} in ${p.sessions} keer` : "niet geladen");
+    const period = h ? `${histLabel(h)}${h.running ? ", tot nu" : ""}` : "—";
+    const ls = c?.last_session;
+    return { title: `Auto · ${c && isNum(c.net_eur) ? eur(c.net_eur) : "—"}`, body: rows([
+      ["Wat", "Waar de auto in deze periode laadde, en wat thuis laden opleverde. Een laadbeurt telt in de periode waarin hij begon."],
+      ["Thuis", carNoData(c) || (carHome(c) === "none" ? `nog niet binnen: de nieuwste thuissessie is van ${dmyTs(c.last_home)}`
+        : `${home ? `${place(home)}, waarvan ${plain(kwh(home.solar_kwh, 0))} uit eigen zon${share(home)}` : "niet geladen"}${carHome(c) === "part" ? `; alleen tot ${dmyTs(c.last_home)}, de rest komt nog binnen` : ""}`)],
+      ["Vergoed − kosten", home ? `${eur(home.reimbursed_eur)} vergoed − ${eur(home.real_cost_eur)} werkelijke kosten (stroom van het net tegen je contractprijs, eigen zon tegen wat die zon anders had opgeleverd) = ${eur(c.net_eur)}` : "—"],
+      ["Werk", now.work ? `${place(now.work)}, ${eur(now.work.billed_eur)} op de laadpas` : "niet geladen"],
+      ["Onderweg", now.public ? `${place(now.public)}, ${eur(now.public.billed_eur)} op de laadpas` : "niet geladen"],
+      ["Vorig jaar", !ly ? "—: van toen zijn er nog geen laadgegevens" : `thuis ${lyHome ? `${place(lyHome)}, eigen zon ${plain(kwh(lyHome.solar_kwh, 0))}${share(lyHome)}, vergoed − kosten ${eur(c.ly_net_eur)}` : "niet geladen"} · werk ${ly.work ? plain(kwh(ly.work.kwh, 0)) : "—"} · onderweg ${ly.public ? plain(kwh(ly.public.kwh, 0)) : "—"}`],
+      ["Deze periode", period],
+      ["Thuis bijgewerkt", c?.last_home ? `de laadpaal-export komt in pakketjes binnen; de nieuwste thuissessie is van ${dmyTs(c.last_home)}` : "—"],
+      ["Laatste laadbeurt", ls ? `${dmyTs(ls.time)}, ${PLACE[ls.kind] || ls.kind}, ${plain(kwh(ls.kwh))}` : "—"],
       ["Bron", "laadpaal thuis en de laadpas-sessies; kilometerstanden uit de auto-app"],
     ]) + link("car", "Auto in Grafana") };
   },
@@ -975,6 +986,7 @@ function renderHistory() {
     if (box) box.innerHTML = h ? histChart(h, key, color, box.clientWidth, digits) : "";
   }
   renderHistSoc(h);
+  renderHistCar(h);
   const a = $("[data-hlink]");
   if (a) {
     // a day opens Grafana's Dag dashboard, longer periods Periode
@@ -982,6 +994,72 @@ function renderHistory() {
     a.hidden = !base || !h;
     if (base && h) {
       const u = new URL(base, location.href); // the configured link may carry its own range: replace it
+      u.searchParams.set("from", String(new Date(h.start).getTime()));
+      u.searchParams.set("to", String(Math.min(new Date(h.end).getTime(), Date.now())));
+      a.href = u.toString(); a.target = "_blank"; a.rel = "noopener";
+    }
+  }
+}
+
+// The Auto card for the selected week, month or year (hidden for a day: sessions run across midnight).
+// Last year counts only when it lies after the first session; before that "—", not 0 kWh.
+const carLy = (c) => !!c && !!c.first && new Date(c.ly_compare_end) > new Date(c.first);
+// "none": the period starts after the newest imported home session; "part": it runs past it.
+function carHome(c) {
+  if (!c?.last_home) return "none";
+  const after = new Date(c.last_home).getTime() + 86400000;
+  if (new Date(c.start).getTime() > after) return "none";
+  return new Date(c.end).getTime() > after && after < Date.now() ? "part" : "ok";
+}
+const carNoData = (c) => (c?.first && new Date(c.end) <= new Date(c.first) ? `—: laadgegevens beginnen ${dmyTs(c.first)}` : "");
+function renderHistCar(h) {
+  const card = $("[data-hauto]");
+  if (!card) return;
+  card.hidden = !h || h.unit === "day";
+  const c = h?.car;
+  if (card.hidden) return;
+  const by = (list) => Object.fromEntries((list || []).map((p) => [p.kind, p]));
+  const none = !c || !!carNoData(c);
+  const now = by(c?.places), ly = carLy(c) ? by(c.ly_places) : null;
+  const k0 = (x) => `${fmt[0].format(x)} kWh`;
+  const kwhOf = (p) => (none ? "—" : kwh(p ? p.kwh : 0, 0));
+  const lyKwh = (kind) => (ly ? vsLastYear(now[kind]?.kwh ?? 0, ly[kind]?.kwh ?? 0, k0) : "vorig jaar —");
+  // Home sessions arrive in batches (the charger's export). A period that starts after the newest one
+  // has no home figures yet ("—", not 0); one that runs past it is incomplete, so no change against
+  // last year, only "tot <date>" and last year's figure.
+  const lastHome = c?.last_home ? new Date(c.last_home) : null;
+  const homeNone = !none && carHome(c) === "none", homePart = !none && carHome(c) === "part";
+  const upTo = lastHome ? `tot ${lastHome.toLocaleDateString("nl-NL", { day: "numeric", month: "short", timeZone: TZ })}` : "";
+  const plainLy = (x, f) => (ly ? `vorig jaar ${f(x ?? 0)}` : "vorig jaar —");
+  setV("ha-home", none || homeNone ? "—" : kwh(now.home ? now.home.kwh : 0, 0));
+  setV("ha-home-sub", none ? carNoData(c) : homeNone ? `nog niet binnen · ${plainLy(ly?.home?.kwh, k0)}`
+    : `${now.home && isNum(now.home.solar_kwh) && now.home.kwh ? `${fmt[0].format((now.home.solar_kwh / now.home.kwh) * 100)} % eigen zon · ` : ""}${homePart ? `${upTo} · ${plainLy(ly?.home?.kwh, k0)}` : lyKwh("home")}`);
+  setV("ha-net", none || homeNone ? "—" : eur(c.net_eur ?? 0, 0));
+  setV("ha-net-sub", none ? "" : `${homeNone ? "nog niet binnen · " : homePart ? `${upTo} · ` : ""}${plainLy(c.ly_net_eur, (x) => eur(x, 0))}`);
+  setV("ha-work", kwhOf(now.work));
+  setV("ha-work-sub", none ? "" : `${now.work ? `${eur(now.work.billed_eur, 0)} laadpas · ` : ""}${lyKwh("work")}`);
+  setV("ha-public", kwhOf(now.public));
+  setV("ha-public-sub", none ? "" : `${now.public ? `${eur(now.public.billed_eur, 0)} laadpas · ` : ""}${lyKwh("public")}`);
+
+  // Home sessions arrive in batches: say so when the period reaches past the newest one.
+  const lag = $("[data-hacar]");
+  if (lag) {
+    const behind = homeNone || homePart;
+    lag.hidden = !behind;
+    lag.textContent = behind ? `Thuisladen staat erin tot ${dmyTs(c.last_home)}: de laadpaal-export komt in pakketjes binnen.` : "";
+  }
+  const note = $("[data-mreading]");
+  const n = daysAgo(c?.reading_day);
+  if (note) {
+    note.hidden = !(isNum(n) && n > 90);
+    note.textContent = note.hidden ? "" : `De laatste kilometerstand is van ${dmy(c.reading_day)}; tijd voor een nieuwe stand uit de auto-app.`;
+  }
+  const a = $("[data-hacarlink]");
+  if (a) {
+    const base = state.config.links.car;
+    a.hidden = !base;
+    if (base) {
+      const u = new URL(base, location.href);
       u.searchParams.set("from", String(new Date(h.start).getTime()));
       u.searchParams.set("to", String(Math.min(new Date(h.end).getTime(), Date.now())));
       a.href = u.toString(); a.target = "_blank"; a.rel = "noopener";
@@ -1195,7 +1273,7 @@ function nightChart(nights, median, width) {
 }
 
 function renderMeer() {
-  const m = state.meer, u = m?.usage, car = m?.car;
+  const m = state.meer, u = m?.usage;
   setV("m-last", u?.last ? watt(u.last.w) : "—");
   setV("m-last-sub", u?.last ? `nacht naar ${dmy(u.last.night)}${u.last.car ? " · auto laadde thuis" : ""}` : "");
   setV("m-med", u && isNum(u.median_30) ? watt(u.median_30) : "—");
@@ -1213,28 +1291,6 @@ function renderMeer() {
       : '<tr><td colspan="3" class="empty">geen stekkers gezien</td></tr>';
   }
 
-  const by = Object.fromEntries((car?.places || []).map((p) => [p.kind, p]));
-  const times = (p) => `${p.sessions} keer`;
-  const yr = car?.year_start ? new Date(car.year_start).toLocaleDateString("nl-NL", { year: "numeric", timeZone: TZ }) : "";
-  setV("m-car-period", yr ? `${yr} tot nu` : "dit jaar");
-  const h = by.home, w = by.work, p = by.public;
-  setV("m-home", h ? kwh(h.kwh, 0) : car ? kwh(0, 0) : "—");
-  setV("m-home-sub", h ? `${isNum(h.solar_kwh) && h.kwh ? `${fmt[0].format((h.solar_kwh / h.kwh) * 100)} % eigen zon · ` : ""}${times(h)}` : "");
-  setV("m-work", w ? kwh(w.kwh, 0) : car ? kwh(0, 0) : "—");
-  setV("m-work-sub", w ? `${eur0(w.billed_eur)} op de laadpas · ${times(w)}` : "");
-  setV("m-public", p ? kwh(p.kwh, 0) : car ? kwh(0, 0) : "—");
-  setV("m-public-sub", p ? `${eur0(p.billed_eur)} op de laadpas · ${times(p)}` : "");
-  setV("m-net", car && isNum(car.net_eur) ? eur(car.net_eur) : "—");
-  setV("m-net-sub", h ? `vergoed ${eur0(h.reimbursed_eur)} − kosten ${eur0(h.real_cost_eur)}` : "");
-  const ls = car?.last_session;
-  setV("m-lastses", ls ? `${dmyTs(ls.time)}` : "—");
-  setV("m-lastses-sub", ls ? `${PLACE[ls.kind] || ls.kind} · ${plain(kwh(ls.kwh))}` : "");
-  const note = $("[data-mreading]");
-  const n = daysAgo(car?.reading_day);
-  if (note) {
-    note.hidden = !(isNum(n) && n > 90);
-    note.textContent = note.hidden ? "" : `De laatste kilometerstand is van ${dmy(car.reading_day)}; tijd voor een nieuwe stand uit de auto-app.`;
-  }
   renderMeerStatus();
 }
 
