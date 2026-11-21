@@ -300,3 +300,10 @@ body.walled .shell { display: none; }
 .tplugday td small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
 .tplugday .spark { width: 96px; height: 22px; display: inline-block; vertical-align: middle; }
 .tplugday td:first-of-type { white-space: nowrap; }
+/* Meer: Uitleg spans both columns on a desktop, its terms in two columns */
+.gloss details { break-inside: avoid; }
+@media (min-width: 1000px) {
+  .cols > .wide { grid-column: 1 / -1; }
+  .wide .gloss { columns: 2; column-gap: 32px; }
+  .wide .gloss details, .wide .gloss details:first-child { border-top: 0; border-bottom: 1px solid var(--line); }
+}
