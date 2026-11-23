@@ -27,6 +27,8 @@ from pathlib import Path
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
@@ -47,15 +49,15 @@ BATTERY_INTERVAL = float(os.environ.get("BATTERY_INTERVAL", "60"))
 HISTORY_MAX_AGE = float(os.environ.get("HISTORY_MAX_AGE", "300"))
 HISTORY_UNITS = ("day", "week", "month", "year")
 # The Geld and Meer screens (app_money, app_meer) are re-read at most this often. Their figures move
-# slowly and app_money costs ~0.3 s, so every 5 minutes, not every minute.
+# slowly and app_money costs ~0.2 s, so every 5 minutes, not every minute.
 MONEY_INTERVAL = float(os.environ.get("MONEY_INTERVAL", "300"))
-# "Bespaard door de batterij" on Thuis (app_battery_savings_today, ~0.2 s per read) is re-read at most
+# "Bespaard door de batterij" on Thuis (app_battery_savings_today, up to ~0.15 s by the evening) is re-read at most
 # this often; the rest of the day figures keep TODAY_INTERVAL.
 SAVINGS_INTERVAL = float(os.environ.get("SAVINGS_INTERVAL", "300"))
-# The Zon sheet's day per string (app_solar, ~60 ms) is re-read at most this often, and only while
+# The Zon sheet's day per string (app_solar, ~20 ms) is re-read at most this often, and only while
 # someone has the sheet open.
 SOLAR_INTERVAL = float(os.environ.get("SOLAR_INTERVAL", "60"))
-# Today per hour behind the Huis, Net, Gas, Buiten and plug sheets (app_today_detail, ~250 ms): at most
+# Today per hour behind the Huis, Net, Gas, Buiten and plug sheets (app_today_detail, ~25 ms): at most
 # this often, and only while one of those sheets is open.
 DETAIL_INTERVAL = float(os.environ.get("DETAIL_INTERVAL", "60"))
 
@@ -185,7 +187,7 @@ class Hub:
             return await self._query_one("SELECT * FROM app_solar_live")
         except Exception as exc:
             log.warning("strings read failed: %s: %s", type(exc).__name__, exc)
-            return (self.live or {}).get("strings")
+            return None  # not the previous reading: its "stuck" flag would stay up for as long as this fails
 
     async def refresh_today(self) -> None:
         try:
@@ -248,12 +250,18 @@ class Hub:
         if hit and now - hit[0] < max_age:
             return hit[1]
         try:
-            row = await self._query_one("SELECT app_history(%(u)s, %(a)s) AS h, app_history_soc(%(u)s, %(a)s) AS s, "
-                                        "app_history_car(%(u)s, %(a)s) AS c", {"u": unit, "a": anchor})
+            row = await self._query_one("SELECT app_history(%(u)s, %(a)s) AS h", {"u": unit, "a": anchor})
             data = row["h"] if row else None
             if data is not None:
-                data["soc"] = row["s"]   # the battery's charge level for the same period (035)
-                data["car"] = row["c"]   # charging sessions in the same period and last year (039)
+                # the battery's charge level (035) and the car (039) for the same period: extras, read
+                # in their own try so a failing one leaves the rest of Historie standing
+                try:
+                    extra = await self._query_one("SELECT app_history_soc(%(u)s, %(a)s) AS s, app_history_car(%(u)s, %(a)s) AS c",
+                                                  {"u": unit, "a": anchor})
+                    data["soc"], data["car"] = (extra["s"], extra["c"]) if extra else (None, None)
+                except Exception as exc:
+                    log.warning("history extras failed: %s: %s", type(exc).__name__, exc)
+                    data["soc"] = data["car"] = None
             result = {"ok": True, "data": data}
         except Exception as exc:
             log.warning("history read failed: %s: %s", type(exc).__name__, exc)
@@ -527,7 +535,11 @@ routes = [
     Mount("/static", RevalidatedStatic(directory=STATIC_DIR), name="static"),
 ]
 
-app = Starlette(routes=routes, lifespan=lifespan)
+# gzip for the page, scripts and the larger JSON answers (Historie up to ~35 kB): roughly a fifth of
+# the bytes on a phone connection. Starlette leaves the event stream uncompressed, so live updates
+# are not held back in a compression buffer.
+app = Starlette(routes=routes, lifespan=lifespan,
+                middleware=[Middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)])
 
 
 def main() -> None:

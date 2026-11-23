@@ -412,13 +412,16 @@ const SHEETS = {
     maybeFetchDetail();
     const calc = d?.flow_time ? `${plain(power(d.grid_w))} net + ${plain(power(d.battery_ac_w))} uit de batterij${d.socket_in_w >= 10 ? ` − ${plain(power(d.socket_in_w))} batterij uit het stopcontact` : ""} = ${plain(power(d.house_w))}` : "—";
     const ySoFar = yesterdaySoFar(x?.hours);
+    // today so far from the same hourly figures as yesterday (the counters' day total runs ~1 % higher)
+    const hSoFar = (x?.hours || []).reduce((a, h) => (isNum(h.house_kwh) ? (a ?? 0) + h.house_kwh : a), null);
     const plugs = x?.plugs || [];
     const plugSum = plugs.reduce((a, p) => a + (isNum(p.today_kwh) ? p.today_kwh : 0), 0);
     const night = x?.night;
     return { title: `Verbruik nu · ${plain(power(d?.house_w))}`, body: rows([
       ["Wat", "Wat het huis nu gebruikt, auto en stekkers inbegrepen."],
       ["Nu", calc],
-      ["Vandaag", t && isNum(t.consumption_kwh) ? `${num(t.consumption_kwh)} kWh${isNum(ySoFar) ? `; gisteren tot dezelfde tijd ${num(ySoFar)} kWh` : ""}` : "—"],
+      ["Vandaag", t && isNum(t.consumption_kwh) ? `${num(t.consumption_kwh)} kWh` : "—"],
+      ["Tegen gisteren", isNum(ySoFar) && isNum(hSoFar) && ySoFar > 0 ? `${hSoFar >= ySoFar ? "+" : "−"}${fmt[0].format(Math.abs(hSoFar / ySoFar - 1) * 100)} %: tot nu ${num(hSoFar)} kWh, gisteren tot dezelfde tijd ${num(ySoFar)} kWh (beide uit de uurwaarden)` : "—"],
       ["Vannacht", night ? `${fmt[0].format(night.w)} W gemiddeld 01:00–05:00${night.car ? " · <b>de auto laadde</b> (de meter zag de lader)" : " · basislast"}` : "—: 01:00–05:00 is nog niet voorbij"],
       ["Stekkers", plugs.length ? `samen ${num(plugSum, 2)} kWh vandaag${t && isNum(t.consumption_kwh) && t.consumption_kwh > 0 ? ` (${fmt[0].format((plugSum / t.consumption_kwh) * 100)} % van het verbruik)` : ""}; tik op een stekker voor de details` : "—"],
     ]) + chartBlock("huis", "Vandaag per uur", `${sq("var(--huis)", "vandaag")}${dash("gisteren")}<span>kWh per uur</span>`) + rows([
@@ -1137,10 +1140,10 @@ const HIST_CHARTS = {
     note: "uit de tellers van de slimme meter: de stand aan het begin van het volgende uur − die aan het begin van dit uur; opgeteld gelijk aan het dagtotaal",
   }),
   hrekening: (h) => (h.bucket === "hour" ? null : {
-    legend: `${sq("var(--uit)", "stroom")}${sq("var(--gas)", "gas")}${sq("var(--ref)", "vaste kosten")}${sq("var(--eigen)", "teruglevering (onder de lijn)")}<span><i class="ln" style="--c:var(--fg)"></i>totaal</span>${dash("totaal vorig jaar")}`,
+    legend: `${sq("var(--uit)", "stroom")}${sq("var(--gas)", "gas")}${sq("var(--deel)", "vaste kosten")}${sq("var(--eigen)", "teruglevering (onder de lijn)")}<span><i class="ln" style="--c:var(--fg)"></i>totaal</span>${dash("totaal vorig jaar")}`,
     svg: (w) => periodChart(h, { fmt: (x) => eur(x, 2), bars: [
       { label: "stroom", color: "var(--uit)", get: (b) => b.import_eur }, { label: "gas", color: "var(--gas)", get: (b) => b.gas_eur },
-      { label: "vaste kosten", color: "var(--ref)", get: (b) => b.fixed_eur }, { label: "teruglevering", color: "var(--eigen)", neg: true, get: (b) => b.export_eur }],
+      { label: "vaste kosten", color: "var(--deel)", get: (b) => b.fixed_eur }, { label: "teruglevering", color: "var(--eigen)", neg: true, get: (b) => b.export_eur }],
       mark: { label: "totaal", get: (b) => b.net_eur }, ly: { get: (b) => b.net_eur } }, w),
   }),
   hgas: (h) => (h.bucket === "hour" ? {
@@ -1313,7 +1316,7 @@ async function fetchHistory() {
   if (seq === histSeq) { renderHistory(); refreshSheet(); prefetchPrevHistory(); }
 }
 // Ask the server for the period before the shown one, so "vorige" answers from its cache (an uncached
-// period costs ~0.2 s of SQL). Once per shown period, not on the running period's minute refresh, and
+// period costs ~0.1 s of SQL). Once per shown period, not on the running period's minute refresh, and
 // not before the first day of data. The answer is not used here; the server keeps it 5 minutes.
 let histPrefetched = "";
 function prefetchPrevHistory() {
@@ -1920,10 +1923,18 @@ function showScreen() {
     a.classList.toggle("on", on);
     if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   });
+  startScreenData(name);
+  window.scrollTo(0, 0);
+}
+// Each screen fetches its own data on a timer, only while it is shown (and the page is visible).
+function stopScreenData() {
   clearInterval(batteryTimer); batteryTimer = null;
   clearInterval(histTimer); histTimer = null;
   clearInterval(moneyTimer); moneyTimer = null;
   clearInterval(meerTimer); meerTimer = null;
+}
+function startScreenData(name) {
+  stopScreenData();
   if (name === "meer" && !wallMode) {
     renderGlossary();
     fetchMeer();
@@ -1944,7 +1955,6 @@ function showScreen() {
     fetchBattery();
     batteryTimer = setInterval(fetchBattery, Math.max(30, state.config.batteryInterval || 60) * 1000);
   }
-  window.scrollTo(0, 0);
 }
 window.addEventListener("hashchange", showScreen);
 let resizeTimer = null;
@@ -2025,9 +2035,29 @@ function connect() {
     renderStatus(); renderFreshness(); renderWallFoot();
   };
 }
-// A phone that comes back to the app: don't wait for the retry delay.
+// A page nobody sees (another tab, a locked phone, the app in the background) needs no live data:
+// after a minute hidden the stream closes and the screen's timers stop, so the server stops reading
+// the database (it reads only while a screen is connected) and nothing crosses the network. Back in
+// view it reconnects and refreshes at once; a phone that comes back also skips the retry delay.
+// The wall view stays live.
+const HIDDEN_PAUSE_MS = 60000;
+let hiddenTimer = null, paused = false;
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && source && source.readyState === EventSource.CLOSED && state.auth !== "login") connect();
+  if (document.visibilityState === "hidden") {
+    if (wallMode) return;
+    clearTimeout(hiddenTimer);
+    hiddenTimer = setTimeout(() => {
+      paused = true;
+      clearTimeout(retryTimer); retryTimer = null;
+      if (source) source.close();
+      stopScreenData();
+    }, HIDDEN_PAUSE_MS);
+    return;
+  }
+  clearTimeout(hiddenTimer); hiddenTimer = null;
+  if (state.auth === "login") return;
+  if (paused) { paused = false; connect(); startScreenData(currentScreen()); }
+  else if (source && source.readyState === EventSource.CLOSED) connect();
 });
 
 // ---------- wall view ----------
@@ -2070,7 +2100,7 @@ async function start() {
   connect();
   setInterval(() => { renderFreshness(); }, 1000);
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
-  // Warm the server's cache for Geld (app_money ~0.55 s, cached 5 min) a few seconds after opening, so
+  // Warm the server's cache for Geld (app_money ~0.2 s, cached 5 min) a few seconds after opening, so
   // the tab answers at once. Not on the wall screen, which never shows Geld; not when Geld is already open.
   if (!wallMode) setTimeout(() => {
     if (currentScreen() === "geld") return;

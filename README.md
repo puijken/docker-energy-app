@@ -24,6 +24,11 @@ card can link to the matching Grafana dashboard.
 - **Batterij:** (also in the flow picture: charge level, state and the temperature the battery
   reports) charge level with the lower limit, energy available above it, charged and discharged
   today.
+- **Today in detail behind a tap:** the sun opens a sheet per solar string (live voltage, current and
+  power, today's energy per string against each plane's forecast, minutes at low voltage, a bar per
+  hour), and the house, grid, gas, outdoor, battery and plug circles open today per hour (against
+  yesterday, import and export, gas with the outdoor temperature, the charge curve, each plug against
+  its usual use up to the same time). Read only while such a sheet is open.
 - A status pill (stale sources, warnings) and an info sheet behind every number: what it is, how it
   is calculated, the period (live or today), and the source.
 - A wall view at `/?kiosk`: always dark, large numbers, a clock, a small shift every minute against
@@ -34,7 +39,10 @@ card can link to the matching Grafana dashboard.
 One day, week, month or year at a time (‹ › to page back), against the same period last year: totals
 for energy, money and gas with the change, gas per degree day, and bars for generated and used energy
 (per hour for a day, per day for a week or month, per month for a year) with last year as a grey line. While a period is still running, last
-year is counted up to the same day. Below them the battery's charge level for the same period: the
+year is counted up to the same day. Every total opens a sheet with a chart of the selected period:
+running totals against last year, the share per day, import and export, the bill stacked by part,
+gas against degree days. An **Auto** card (week, month, year) shows charging at home, at work and on
+the road against last year, and says up to when home sessions have been imported. Below them the battery's charge level for the same period: the
 curve per 5 minutes for a day, and for longer periods a bar from the lowest to the highest level per
 day (per month for a year), coloured by level like the Batterij chart.
 
@@ -74,9 +82,6 @@ new contract still happens in the source (see the deployment notes).
   Nights with the car charging at home are greyed and left out: the charger counts as house use.
 - **Stekkers:** per plug, kWh today and its mean power last night, plus what was left for the rest of
   the house that night.
-- **Auto:** this year's charging at home, at work and on the road (kWh, sessions, own-solar share,
-  what the charge card billed), what charging at home netted (reimbursed − real cost) and the last
-  session; a note when the latest odometer reading is more than 90 days old.
 - **Status:** every source with when it last reported: the live ones from Thuis plus the
   background ones (PVOutput and Mindergas uploads and charge-card sessions as recorded by the
   service that sends them, daily weather means, the database's scheduled jobs, the latest odometer
@@ -89,7 +94,7 @@ while that screen is open.
 ## How it works
 
 - **Read-only by construction.** The app connects to PostgreSQL/TimescaleDB with a role that may only
-  `SELECT` four views. It never talks to a device and never writes.
+  `SELECT` a few views and run a few read-only functions. It never talks to a device and never writes.
 - **All rules live in SQL.** The views decide what each number means, so the app shows the same
   figures as anything else reading that database. The app formats and draws.
 - **One reader for every screen.** While at least one screen is connected, a background task reads
@@ -97,6 +102,11 @@ while that screen is open.
   pushes the result to all screens over Server-Sent Events. With no screen open it reads nothing.
 - **No build step.** Python (Starlette, uvicorn, psycopg 3) on the server; plain HTML, CSS and
   JavaScript modules in the browser. The flow picture is SVG.
+- **Nothing runs for a page nobody sees.** After a minute hidden (another tab, a locked phone) the
+  page closes its event stream and stops its timers, so the server stops reading (it reads only while
+  a screen is connected); back in view it reconnects at once. The wall view stays live.
+- **Compressed:** pages, scripts and JSON answers are gzipped (the event stream is not, so updates
+  aren't held back).
 - **Offline:** a service worker keeps the app shell; the page keeps the last values and marks them
   "verouderd" (stale).
 
@@ -115,6 +125,10 @@ while that screen is open.
 | `app_money()` | function → JSON | Geld: `savings` (`today_eur`, `month_eur`, `total_eur`, `days`, `since`, `filled_at`), `bill_month` and `bill_year` (net and parts), `bill_2027` (this year at the 2027 rules: parts, `net_eur`, `real_eur`, prices) |
 | `app_meer()` | function → JSON | Meer: `usage` (`nights[]` with `night`, `w`, `car`; `last`; `median_30`, `n_30`, `ly_median_30`; `plugs[]` with `name`, `today_kwh`, `night_w`), `car` (`year_start`, `places[]` with `kind` home/work/public, `sessions`, `kwh`, `solar_kwh`, `reimbursed_eur`, `real_cost_eur`, `billed_eur`; `net_eur`, `last_session`, `reading_day`), `status` (`monta_fetched`, `knmi_fetched`, `knmi_day`, `reading_day`, `jobs_total`, `jobs_failed[]`, `jobs_last_ok`, `uploads` = per service `last_attempt`, `last_ok`, `last_error`, `detail`) |
 | `app_contracts()` | function → JSON | Contracten: `contracts[]` with `id`, `name`, `start`, `end`, `kind`, `status`, prices (`p_normal`, `p_low`, `f_normal`, `f_low`, `p_gas`, `p_fixed`), `feedin_bands`, `feedin_cost_per_kwh`, `salderen`, and the term's `days`, kWh, m³, cost parts, `net_eur`, `generated_kwh`, `consumption_kwh`, `self_sufficiency` |
+| `app_solar_live` | zero or one | per solar string: newest `east_v`/`east_a`/`east_w`, `west_v`/`west_a`/`west_w`, `strings_time`, and `east_stuck`/`west_stuck` (a string held at low voltage now). Optional, read with `app_live` in its own try |
+| `app_solar()` | function → JSON | the Zon sheet: today per hour and in total per string (`east_wh`, `west_wh`, forecasts `*_fc_wh`, minutes at low voltage `*_low_min`), the forecast up to now (`*_fc_sofar_kwh`), first and last low-voltage reading |
+| `app_today_detail()` | function → JSON | the other Thuis sheets: `hours[]` (`house_kwh`, `y_house_kwh` yesterday's same hour, `import_kwh`, `export_kwh`, `gas_m3`), `outdoor[]`, `plugs[]` (`today_kwh`, `usual_kwh`, `usual_sofar_kwh`, `w[]` per hour), `night` (mean use 01:00–05:00, `car`) |
+| `app_history_car(unit, date)` | function → JSON | Historie's Auto card for the same period: `places[]`/`ly_places[]` per place, `net_eur`/`ly_net_eur`, `buckets[]` (kWh per day or month and place), `last_home`, `last_session`, `first`, `reading_day`. `/api/history` returns it as `car` |
 | `app_forecast` | zero or one | solar forecast: `fetched_at`, `today_kwh`, `rest_today_kwh` (now → midnight), `tomorrow_kwh`, `tomorrow_hours` (24 when tomorrow is complete). Optional: when it is missing or fails, the rest of the screen works and the card shows “—” |
 
 `tests/fixture.sql` has stand-ins with exactly the columns the app reads. The real definitions belong
@@ -132,9 +146,11 @@ All settings come from the environment. None of them is secret except the databa
 | `LIVE_INTERVAL` | `5` | seconds between live reads |
 | `TODAY_INTERVAL` | `60` | seconds between reads of the day views |
 | `BATTERY_PRICE_EUR` | (empty) | what the battery cost, for the payback bar on Geld; no bar when unset |
-| `MONEY_INTERVAL` | `300` | the Geld and Meer data are re-read at most this often (they move slowly; `app_money` costs ~0.3 s) |
-| `SAVINGS_INTERVAL` | `300` | Thuis' "bespaard door de batterij" (~0.2 s per read) is re-read at most this often; the other day figures follow `TODAY_INTERVAL` |
+| `MONEY_INTERVAL` | `300` | the Geld and Meer data are re-read at most this often (they move slowly) |
+| `SAVINGS_INTERVAL` | `300` | Thuis' "bespaard door de batterij" is re-read at most this often; the other day figures follow `TODAY_INTERVAL` |
 | `HISTORY_MAX_AGE` | `300` | seconds a Historie answer is kept (60 for a period that is still running) |
+| `SOLAR_INTERVAL` | `60` | the Zon sheet's day per string is re-read at most this often (only while the sheet is open) |
+| `DETAIL_INTERVAL` | `60` | today per hour behind the other Thuis sheets: at most this often, only while such a sheet is open |
 | `BATTERY_INTERVAL` | `60` | the Batterij screen's data is re-read at most this often (only while a screen asks for it) |
 | `PLUG_LABELS` | (empty) | display names, `source=Label,...`; also the plugs the status sheet expects |
 | `LINK_DAY`, `LINK_PERIOD`, `LINK_MONEY`, `LINK_BATTERY`, `LINK_PLUGS`, `LINK_TECH`, `LINK_CAR` | (empty) | Grafana links per card and tab; a missing link hides it |
@@ -170,9 +186,14 @@ CREATE ROLE energy_app LOGIN CONNECTION LIMIT 4;
 ALTER ROLE energy_app SET default_transaction_read_only = on;
 ALTER ROLE energy_app SET statement_timeout = '5s';
 GRANT USAGE ON SCHEMA public TO energy_app;
-GRANT SELECT ON app_live, app_today, app_battery_savings_today, app_forecast,
+GRANT SELECT ON app_live, app_solar_live, app_today, app_battery_savings_today, app_forecast,
                 app_battery_soc_today, app_battery_summary, app_battery_efficiency TO energy_app;
-GRANT EXECUTE ON FUNCTION app_history(text, date), app_history_soc(text, date), app_money(), app_contracts(), app_meer() TO energy_app;
+GRANT EXECUTE ON FUNCTION app_history(text, date), app_history_soc(text, date), app_history_car(text, date),
+                app_money(), app_contracts(), app_meer(), app_solar(), app_today_detail() TO energy_app;
+-- the functions read tables the role can't, so they are SECURITY DEFINER: give each one
+-- SET search_path = public, pg_temp (pg_temp last, or a caller's temporary view named like one of
+-- your tables runs with the owner's rights), revoke their EXECUTE from PUBLIC, and
+REVOKE TEMPORARY ON DATABASE energy FROM PUBLIC;
 -- then set its password by hand, not in a file you commit
 ```
 
@@ -188,6 +209,8 @@ GRANT EXECUTE ON FUNCTION app_history(text, date), app_history_soc(text, date), 
 | `/api/money` | the Geld screen (re-read at most every `MONEY_INTERVAL` seconds); the page warms it 3 s after opening, except on the wall screen |
 | `/api/meer` | the Meer screen (re-read at most every `MONEY_INTERVAL` seconds) |
 | `/api/battery` | the Batterij screen: today's charge level, the summary row, efficiency per band, the day's start and end (re-read at most every `BATTERY_INTERVAL` seconds) |
+| `/api/solar` | the Zon sheet's day per string (re-read at most every `SOLAR_INTERVAL` seconds) |
+| `/api/detail` | today per hour for the other Thuis sheets (re-read at most every `DETAIL_INTERVAL` seconds) |
 | `/api/config` | links, plug labels, intervals, time zone |
 | `/healthz` | 200 when the database answers, 503 otherwise (used by the image's `HEALTHCHECK`) |
 
