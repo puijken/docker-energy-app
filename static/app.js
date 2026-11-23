@@ -380,7 +380,7 @@ const SHEETS = {
       ["Nu", d?.flow_time ? `batterij ${plain(power(d.flow_sun_bat_w))} · huis ${plain(power(d.flow_sun_house_w))} · net ${plain(power(d.flow_sun_grid_w))}` : "—"],
     ]) + stringsBlock(day) + rows([
       ["Hoe verdeeld", "De panelen hangen aan de thuisbatterij, dus alle zonnestroom gaat door het apparaat. Gemeten: wat de cellen laden, wat het apparaat aan het huis levert en wat de slimme meter terug ziet gaan. Daaruit volgt elke lijn. Alleen als zon en batterij tegelijk aan het huis leveren (rond zonsopgang en -ondergang) is de verdeling geschat, naar verhouding. Samen iets minder dan de zon zelf: ongeveer 3 % gaat verloren bij het omzetten."],
-      ["Per string", "De panelen liggen in twee strings, elk op een eigen dakvlak: oost en west. Per string gemeten: spanning × stroom, vóór het omzetten (DC), elke 5 s. Opgeteld komt dat een paar procent hoger uit dan Opgewekt, de teller van de batterij; voor de dag geldt Opgewekt."],
+      ["Per string", "De panelen liggen in twee strings, elk op een eigen dakvlak: oost en west. Per string gemeten: spanning × stroom, vóór het omzetten (DC), elke 5 s. Opgeteld komt dat een paar procent onder Opgewekt uit; voor de dag geldt Opgewekt, het zonvermogen dat de batterij meldt (zoals in de Anker-app)."],
       ["Verwachting", "Open-Meteo, per dakvlak (≈). Per uur per string zit die er vaak een derde naast: vergelijk oost met west en de hele dag, niet één uur."],
       ["Lage spanning", "Telt als een string onder 150 V zit terwijl er minstens 0,3 A door loopt. Normaal werkt een string op 250–300 V. Bij zonsopgang en -ondergang zakt de spanning ook, maar dan met weinig stroom; dat telt niet mee. Blijft de batterij bij daglicht op lage spanning hangen, dan levert die string minder dan hij kan."],
       ["Periode", `nu: ${LIVE_PERIOD()}; vandaag: 00:00 – nu, elke minuut nieuw`],
@@ -499,12 +499,12 @@ const SHEETS = {
     const t = state.today?.data;
     return { title: `Opgewekt · ${plain(kwh(t?.generated_kwh))}`, body: rows([
       ["Wat", "Wat de zonnepanelen vandaag opwekten."],
-      ["Berekening", "stand van de opbrengstteller nu − stand om 00:00"],
+      ["Berekening", "het zonvermogen van de thuisbatterij, opgeteld sinds 00:00 (elke 5 s gemeten)"],
       ["Zelf benut", t && isNum(t.self_consumption)
         ? `${fmt[0].format(t.self_consumption * 100)} %: het deel dat niet naar het net ging, direct gebruikt of de batterij in. (${num(t.generated_kwh)} − ${num(t.export_kwh)}) ÷ ${num(t.generated_kwh)} kWh. Wat bij het omzetten in de batterij verloren gaat, telt als benut.`
         : "—: nog niets opgewekt vandaag"],
       ["Periode", TODAY_PERIOD],
-      ["Bron", "opbrengstteller van de thuisbatterij (de panelen hangen eraan)"],
+      ["Bron", "thuisbatterij (de panelen hangen eraan)"],
     ]) + link("period", "Opgewekt per dag in Grafana") };
   },
   verbruik() {
@@ -671,7 +671,7 @@ const SHEETS = {
       ["Bron", "meterstanden en de contractprijzen uit DSMR-reader"],
     ]) + link("money", "Geld in Grafana") };
   },
-  hopgewekt() { return histSheet("Opgewekt", "generated_kwh", "kWh", "Wat de zonnepanelen opwekten.", "som van de opbrengst per dag (de teller van de omvormer, sinds 13-11-2026 die van de thuisbatterij)", "omvormer / thuisbatterij"); },
+  hopgewekt() { return histSheet("Opgewekt", "generated_kwh", "kWh", "Wat de zonnepanelen opwekten.", "som van de opbrengst per dag: tot 13-11-2026 de teller van de omvormer, sindsdien het zonvermogen van de thuisbatterij, opgeteld", "omvormer / thuisbatterij"); },
   hverbruik() { return histSheet("Verbruik", "consumption_kwh", "kWh", "Wat het huis gebruikte, auto en stekkers inbegrepen.", "per dag: afgenomen − teruggeleverd + opgewekt (vóór de batterij) of + uit de batterij − uit het stopcontact (sinds de batterij)", "slimme meter en omvormer / thuisbatterij"); },
   hzelfv() { return histSheet("Zelfvoorzienend", "self_sufficiency", "%", "Deel van je verbruik dat uit eigen zon kwam, direct of via de batterij.", "eigen verbruik ÷ verbruik over de hele periode (niet het gemiddelde van de dagen)", "slimme meter en omvormer / thuisbatterij"); },
   hbenut() { return histSheet("Zelf benut", "self_consumption", "%", "Deel van de opgewekte zon dat je niet teruggeleverd hebt: zelf gebruikt of in de batterij gezet.", "(opgewekt − teruggeleverd) ÷ opgewekt over de hele periode", "slimme meter en omvormer / thuisbatterij"); },
