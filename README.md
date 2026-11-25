@@ -231,7 +231,8 @@ state (no measurements gives nulls, not errors) and a stopped database (`ok:fals
 
 Same triggers as the other `docker-*` repos: a push to `main`, manual dispatch, and monthly on the 1st
 (to pick up base-image rebuilds). Dependabot runs weekly for Docker, pip and GitHub Actions;
-non-major bumps auto-merge after the smoke test.
+non-major bumps are merged automatically and then built (`dependabot-auto-merge.yml` dispatches
+`build.yml`); the build's smoke test runs before anything is pushed to `:latest`.
 
 ## License
 
