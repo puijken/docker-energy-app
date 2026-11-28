@@ -350,3 +350,10 @@ body.walled .shell { display: none; }
 .seg button::after { content: ""; position: absolute; inset: -7px -2px; }
 .eff-row::after { content: ""; position: absolute; inset: -6px 0; }
 .tplugday th button::after { content: ""; position: absolute; inset: -12px -6px; }
+
+/* "Hoe berekend" (app.js FOLD): how a figure is computed and its source, behind one button per sheet */
+.sheet .how { margin-top: 10px; border-top: 1px solid var(--line); }
+.how-btn { position: relative; color: var(--accent); font-size: 14px; font-weight: 600; padding: 12px 0 8px; }
+.how-btn::after { content: ""; position: absolute; inset: -4px -8px; }
+.how-body dl { margin-top: 2px; font-size: 13.5px; }
+.how-body[hidden] { display: none; }
