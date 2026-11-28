@@ -31,6 +31,9 @@ card can link to the matching Grafana dashboard.
   its usual use up to the same time). Read only while such a sheet is open.
 - A status pill (stale sources, warnings) and an info sheet behind every number: what it is, how it
   is calculated, the period (live or today), and the source.
+- Made for a phone: a sheet closes by pulling it down (or a quick flick) from its top, and a finger on
+  a chart shows the value of the bar or hour under it (sliding sideways moves it; on a screen's chart a
+  tap still opens its sheet, so there only a slide shows values). A mouse keeps the hover tooltip.
 - A wall view at `/?kiosk`: always dark, large numbers, a clock, a small shift every minute against
   burn-in, dimmed at night, and a screen wake lock.
 

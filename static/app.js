@@ -850,6 +850,7 @@ function openSheet(key) {
   $("#sheet-title").textContent = title;
   $("#sheet-body").innerHTML = body;
   const dlg = $("#sheet");
+  if (!dlg.open || dlg.dataset.key !== key) hideTip(); // a new sheet; a redraw of the same one keeps its label
   dlg.dataset.key = key;
   if (!dlg.open) dlg.showModal();
   after?.(); // drawn once the sheet is open, so a chart can take the sheet's real width
@@ -1641,13 +1642,21 @@ function socChart(rows, dayStart, dayEnd, width) {
   const grad = (id, op0, op1) => `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="${y(100)}" y2="${y(0)}">${stops(op0, op1)}</linearGradient>`;
   const dot = soc.last ? `<circle cx="${soc.last[0]}" cy="${soc.last[1]}" r="4" fill="var(${socColor(lastSoc)})" stroke="var(--card)" stroke-width="2"/>` : "";
   const empty = rows.length ? "" : `<text x="${(L + W - R) / 2}" y="${y(50)}" text-anchor="middle" class="ax">—: nog geen metingen vandaag</text>`;
+  // one invisible strip per measurement, half-way to its neighbours, carrying its value: hover on a
+  // desktop, a finger on a phone (the touch section reads these <title>s)
+  const pts = rows.filter((r) => isNum(r.soc));
+  const hits = pts.map((r, i) => {
+    const px = x(r.time), a = i ? (x(pts[i - 1].time) + px) / 2 : Math.max(L, px - 3), b = i < pts.length - 1 ? (px + x(pts[i + 1].time)) / 2 : Math.min(W - R, px + 3);
+    const lim = isNum(r.discharge_limit_soc) && isNum(r.charge_limit_soc) ? ` (grenzen ${fmt[0].format(r.discharge_limit_soc)}–${fmt[0].format(r.charge_limit_soc)}%)` : "";
+    return `<rect x="${f1(a)}" y="${T}" width="${f1(Math.max(0.5, b - a))}" height="${H - T - B}" fill="transparent"><title>${hm(r.time)} · ${fmt[0].format(r.soc)}%${lim}</title></rect>`;
+  }).join("");
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Laadniveau vandaag">
     <defs>${grad(`${gid}l`, 1, 1)}<linearGradient id="${gid}f" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--muted)" stop-opacity=".16"/><stop offset="1" stop-color="var(--muted)" stop-opacity=".02"/></linearGradient></defs>
     ${grid}${ticks}
     <path d="${area}" fill="url(#${gid}f)"/>
     <path d="${up.d}" class="lim-line"/><path d="${low.d}" class="lim-line"/>
     <path d="${soc.d}" fill="none" stroke="url(#${gid}l)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-    ${dot}${empty}
+    ${dot}${empty}${hits}
   </svg>`;
 }
 
@@ -2082,6 +2091,151 @@ function startWall() {
   const keepAwake = async () => { try { if ("wakeLock" in navigator && document.visibilityState === "visible") lock = await navigator.wakeLock.request("screen"); } catch { /* not allowed */ } };
   document.addEventListener("visibilitychange", keepAwake);
   keepAwake();
+}
+
+// ---------- touch: read a chart's values with a finger, swipe a sheet down to close it ----------
+// Every chart carries its values as SVG <title>s, one per bar or slot. A mouse shows them on hover; a
+// phone has no hover. A finger on a chart shows the nearest slot's text in a label above the chart, with
+// a guide line through the slot; sliding sideways moves it. In a sheet a tap is enough; on a screen a tap
+// still opens the chart's sheet, so only a sideways slide shows values there. The label stays after the
+// finger lifts, until the next touch somewhere else. Sheets are redrawn on every live update
+// (refreshSheet) and screens on new data, so the label keeps its chart and slot by position and follows.
+const SVGNS = "http://www.w3.org/2000/svg";
+const tipBox = Object.assign(document.createElement("div"), { className: "tip", hidden: true });
+const tipGuide = document.createElementNS(SVGNS, "line");
+tipGuide.setAttribute("class", "tip-guide");
+let tipAt = null;   // { box, sheetN, slotN }: the chart (a sheet's chart by its index, a screen's by element) and the slot
+let scrub = null;   // the finger on a chart: { id, x0, y0, inSheet, on }
+let eatClick = 0;   // a slide over a screen's chart must not also open its sheet
+const tipObserver = new MutationObserver((recs) => { if (recs.some((r) => r.target !== tipBox)) requestAnimationFrame(showTip); });
+
+const tipItems = (svg) => $$("title", svg).map((t) => t.parentNode);
+function tipChart(at) {
+  const box = at.sheetN >= 0 ? $$("#sheet-body .chart")[at.sheetN] : at.box;
+  return box?.isConnected ? $("svg", box) : null;
+}
+// The slot under or nearest to x (horizontal distance first, vertical second: bar-only titles have gaps).
+function slotAt(svg, x, y) {
+  let best = -1, bestD = Infinity;
+  tipItems(svg).forEach((n, i) => {
+    const r = n.getBoundingClientRect();
+    if (!r.width) return;
+    const d = Math.max(r.left - x, x - r.right, 0) * 1000 + Math.max(r.top - y, y - r.bottom, 0);
+    if (d < bestD) { bestD = d; best = i; }
+  });
+  return best;
+}
+function showTip() {
+  if (!tipAt) return;
+  const svg = tipChart(tipAt), n = svg && tipItems(svg)[tipAt.slotN];
+  if (!n) { hideTip(); return; }
+  const vb = svg.viewBox.baseVal, bb = n.getBBox(), cx = (bb.x + bb.width / 2).toFixed(1);
+  if (tipGuide.parentNode !== svg) svg.insertBefore(tipGuide, svg.firstChild); // behind the bars
+  for (const [k, v] of [["x1", cx], ["x2", cx], ["y1", 4], ["y2", vb.height - 22]]) tipGuide.setAttribute(k, v);
+  const dlg = $("#sheet"), inSheet = dlg.contains(svg), home = inSheet ? dlg : document.body; // the open sheet is in the top layer
+  if (tipBox.parentNode !== home) home.append(tipBox);
+  const text = $(":scope > title", n).textContent;
+  if (tipBox.textContent !== text) tipBox.textContent = text;
+  tipBox.hidden = false;
+  const sr = svg.getBoundingClientRect(), w = tipBox.offsetWidth, h = tipBox.offsetHeight;
+  const px = sr.left + (cx / vb.width) * sr.width;
+  const ceiling = inSheet ? dlg.getBoundingClientRect().top + 6 : 6;
+  tipBox.style.left = `${Math.round(Math.min(Math.max(px - w / 2, 8), innerWidth - w - 8))}px`;
+  tipBox.style.top = `${Math.round(sr.top - h - 6 >= ceiling ? sr.top - h - 6 : sr.top + 4)}px`;
+}
+function hideTip() {
+  tipAt = null;
+  tipObserver.disconnect();
+  tipBox.hidden = true;
+  tipGuide.remove();
+}
+function scrubTo(e) {
+  const sheetN = scrub.inSheet ? scrub.sheetN : -1;
+  const svg = tipChart({ box: scrub.box, sheetN });
+  if (!svg) return;
+  const slotN = slotAt(svg, e.clientX, e.clientY);
+  if (slotN < 0) return;
+  if (!tipAt) tipObserver.observe(document.body, { childList: true, subtree: true });
+  tipAt = { box: scrub.box, sheetN, slotN };
+  showTip();
+}
+document.addEventListener("pointerdown", (e) => {
+  scrub = null; eatClick = 0; // a new touch: a click still to come is this touch's own
+  if (e.pointerType === "mouse") return;
+  const svg = e.target.closest?.(".chart svg");
+  if (!svg) { hideTip(); return; }
+  const box = svg.closest(".chart"), inSheet = !!box.closest("#sheet");
+  if (e.target.hasPointerCapture?.(e.pointerId)) e.target.releasePointerCapture(e.pointerId); // the slot under the finger may be redrawn
+  scrub = { id: e.pointerId, x0: e.clientX, y0: e.clientY, box, inSheet, sheetN: inSheet ? $$("#sheet-body .chart").indexOf(box) : -1, on: inSheet };
+  if (inSheet) scrubTo(e);
+  else if (tipAt && tipAt.box !== box) hideTip();
+}, true);
+document.addEventListener("pointermove", (e) => {
+  if (!scrub || e.pointerId !== scrub.id) return;
+  if (!scrub.on) {
+    const dx = Math.abs(e.clientX - scrub.x0), dy = Math.abs(e.clientY - scrub.y0);
+    if (dx < 8 || dx < dy) return;
+    scrub.on = true;
+  }
+  scrubTo(e);
+});
+document.addEventListener("pointerup", (e) => {
+  if (scrub?.on && !scrub.inSheet && e.pointerId === scrub.id) eatClick = e.timeStamp;
+  scrub = null;
+});
+document.addEventListener("pointercancel", () => { if (scrub) hideTip(); scrub = null; }); // the page took over: a vertical scroll
+document.addEventListener("click", (e) => {
+  if (eatClick && e.timeStamp - eatClick < 600) { e.stopPropagation(); e.preventDefault(); }
+  eatClick = 0;
+}, true);
+document.addEventListener("scroll", () => { if (tipAt) showTip(); }, { capture: true, passive: true });
+addEventListener("resize", () => { if (tipAt) showTip(); });
+
+// The sheet follows a finger pulled down from its top and closes past ~a quarter of its height or on
+// a quick flick; otherwise it springs back. Only while the sheet is scrolled to the top (otherwise a
+// pull scrolls it up), and not from a chart (there a finger reads values). Touch events, not pointer
+// events: the pull has to cancel the browser's own scrolling, decided on the first move.
+{
+  const dlg = $("#sheet");
+  let drag = null;
+  dlg.addEventListener("touchstart", (e) => {
+    drag = null;
+    if (e.touches.length !== 1 || dlg.scrollTop > 0 || e.target.closest(".chart svg")) return;
+    const t = e.touches[0];
+    drag = { x0: t.clientX, y0: t.clientY, dy: 0, on: null, lastY: t.clientY, lastT: e.timeStamp, v: 0 };
+  }, { passive: true });
+  dlg.addEventListener("touchmove", (e) => {
+    if (!drag) return;
+    const t = e.touches[0], dy = t.clientY - drag.y0;
+    if (drag.on === null) {
+      drag.on = dy > 0 && dy >= Math.abs(t.clientX - drag.x0) && dlg.scrollTop <= 0 && e.cancelable;
+      if (!drag.on) { drag = null; return; }
+      hideTip();
+      dlg.classList.add("dragging");
+    }
+    e.preventDefault();
+    if (e.timeStamp > drag.lastT) drag.v = (t.clientY - drag.lastY) / (e.timeStamp - drag.lastT);
+    drag.lastY = t.clientY; drag.lastT = e.timeStamp; drag.dy = Math.max(0, dy);
+    dlg.style.transform = `translateY(${drag.dy}px)`;
+  }, { passive: false });
+  const end = () => {
+    if (!drag?.on) { drag = null; return; }
+    const { dy, v } = drag;
+    drag = null;
+    dlg.classList.remove("dragging");
+    if (dy > Math.min(140, dlg.offsetHeight * 0.25) || (v > 0.5 && dy > 24)) {
+      dlg.style.transform = `translateY(${dlg.offsetHeight + 40}px)`;
+      setTimeout(() => dlg.close(), 200);
+    } else dlg.style.transform = "";
+  };
+  dlg.addEventListener("touchend", end);
+  dlg.addEventListener("touchcancel", end);
+  dlg.addEventListener("close", () => {
+    dlg.classList.add("dragging"); // no slide-back animation on the way out
+    dlg.style.transform = "";
+    requestAnimationFrame(() => dlg.classList.remove("dragging"));
+    if (tipAt?.sheetN >= 0) hideTip();
+  });
 }
 
 // ---------- start ----------
