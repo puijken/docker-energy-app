@@ -33,7 +33,8 @@ card can link to the matching Grafana dashboard.
   is calculated, the period (live or today), and the source.
 - Made for a phone: a sheet closes by pulling it down (or a quick flick) from its top, and a finger on
   a chart shows the value of the bar or hour under it (sliding sideways moves it; on a screen's chart a
-  tap still opens its sheet, so there only a slide shows values). A mouse keeps the hover tooltip.
+  tap still opens its sheet, so there only a slide shows values). A mouse gets the same label by
+  hovering, at once and following the cursor, instead of the browser's own tooltip.
   Touch screens show no ✕ on a sheet (still there for screen readers), mouse screens no grab bar.
 - A wall view at `/?kiosk`: always dark, large numbers, a clock, a small shift every minute against
   burn-in, dimmed at night, and a screen wake lock.

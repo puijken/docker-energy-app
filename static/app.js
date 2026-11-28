@@ -2093,23 +2093,32 @@ function startWall() {
   keepAwake();
 }
 
-// ---------- touch: read a chart's values with a finger, swipe a sheet down to close it ----------
-// Every chart carries its values as SVG <title>s, one per bar or slot. A mouse shows them on hover; a
-// phone has no hover. A finger on a chart shows the nearest slot's text in a label above the chart, with
-// a guide line through the slot; sliding sideways moves it. In a sheet a tap is enough; on a screen a tap
-// still opens the chart's sheet, so only a sideways slide shows values there. The label stays after the
-// finger lifts, until the next touch somewhere else. Sheets are redrawn on every live update
-// (refreshSheet) and screens on new data, so the label keeps its chart and slot by position and follows.
+// ---------- chart values by finger or mouse, swipe a sheet down to close it ----------
+// Every chart carries its values as SVG <title>s, one per bar or slot. The browser's own tooltip for
+// them is slow, sits at the cursor and doesn't exist on a phone, so the titles become data-tip
+// attributes (tipItems) and the app shows them itself: the nearest slot's text in a label above the
+// chart, with a guide line through the slot.
+// - Finger: sliding sideways moves it. In a sheet a tap is enough; on a screen a tap still opens the
+//   chart's sheet, so only a sideways slide shows values there. The label stays after the finger lifts,
+//   until the next touch somewhere else.
+// - Mouse: hovering is enough; the label follows the cursor and goes when it leaves the chart.
+// Sheets are redrawn on every live update (refreshSheet) and screens on new data, so the label keeps
+// its chart and slot by position and follows.
 const SVGNS = "http://www.w3.org/2000/svg";
 const tipBox = Object.assign(document.createElement("div"), { className: "tip", hidden: true });
 const tipGuide = document.createElementNS(SVGNS, "line");
 tipGuide.setAttribute("class", "tip-guide");
-let tipAt = null;   // { box, sheetN, slotN }: the chart (a sheet's chart by its index, a screen's by element) and the slot
+let tipAt = null;   // { box, sheetN, slotN, mouse }: the chart (a sheet's chart by its index, a screen's by element), the slot, and whether a mouse put it there
 let scrub = null;   // the finger on a chart: { id, x0, y0, inSheet, on }
 let eatClick = 0;   // a slide over a screen's chart must not also open its sheet
 const tipObserver = new MutationObserver((recs) => { if (recs.some((r) => r.target !== tipBox)) requestAnimationFrame(showTip); });
 
-const tipItems = (svg) => $$("title", svg).map((t) => t.parentNode);
+// A chart's slots: elements with a data-tip. Fresh drawings still carry <title>s; they move into data-tip
+// here, so the browser's own tooltip never shows on top of the app's label.
+function tipItems(svg) {
+  for (const t of $$("title", svg)) { t.parentNode.setAttribute("data-tip", t.textContent); t.remove(); }
+  return $$("[data-tip]", svg);
+}
 function tipChart(at) {
   const box = at.sheetN >= 0 ? $$("#sheet-body .chart")[at.sheetN] : at.box;
   return box?.isConnected ? $("svg", box) : null;
@@ -2134,7 +2143,7 @@ function showTip() {
   for (const [k, v] of [["x1", cx], ["x2", cx], ["y1", 4], ["y2", vb.height - 22]]) tipGuide.setAttribute(k, v);
   const dlg = $("#sheet"), inSheet = dlg.contains(svg), home = inSheet ? dlg : document.body; // the open sheet is in the top layer
   if (tipBox.parentNode !== home) home.append(tipBox);
-  const text = $(":scope > title", n).textContent;
+  const text = n.getAttribute("data-tip");
   if (tipBox.textContent !== text) tipBox.textContent = text;
   tipBox.hidden = false;
   const sr = svg.getBoundingClientRect(), w = tipBox.offsetWidth, h = tipBox.offsetHeight;
@@ -2149,15 +2158,23 @@ function hideTip() {
   tipBox.hidden = true;
   tipGuide.remove();
 }
-function scrubTo(e) {
-  const sheetN = scrub.inSheet ? scrub.sheetN : -1;
-  const svg = tipChart({ box: scrub.box, sheetN });
+function tipTo(box, sheetN, e, mouse) {
+  const svg = tipChart({ box, sheetN });
   if (!svg) return;
   const slotN = slotAt(svg, e.clientX, e.clientY);
   if (slotN < 0) return;
+  if (tipAt && tipAt.box === box && tipAt.slotN === slotN && tipAt.mouse === mouse) return;
   if (!tipAt) tipObserver.observe(document.body, { childList: true, subtree: true });
-  tipAt = { box: scrub.box, sheetN, slotN };
+  tipAt = { box, sheetN, slotN, mouse };
   showTip();
+}
+const scrubTo = (e) => tipTo(scrub.box, scrub.inSheet ? scrub.sheetN : -1, e, false);
+// The mouse over a chart, or off it.
+function hoverTo(e) {
+  const svg = e.target.closest?.(".chart svg");
+  if (!svg) { if (tipAt?.mouse) hideTip(); return; }
+  const box = svg.closest(".chart"), inSheet = !!box.closest("#sheet");
+  tipTo(box, inSheet ? $$("#sheet-body .chart").indexOf(box) : -1, e, true);
 }
 document.addEventListener("pointerdown", (e) => {
   scrub = null; eatClick = 0; // a new touch: a click still to come is this touch's own
@@ -2171,6 +2188,7 @@ document.addEventListener("pointerdown", (e) => {
   else if (tipAt && tipAt.box !== box) hideTip();
 }, true);
 document.addEventListener("pointermove", (e) => {
+  if (e.pointerType === "mouse") { hoverTo(e); return; }
   if (!scrub || e.pointerId !== scrub.id) return;
   if (!scrub.on) {
     const dx = Math.abs(e.clientX - scrub.x0), dy = Math.abs(e.clientY - scrub.y0);
@@ -2184,6 +2202,9 @@ document.addEventListener("pointerup", (e) => {
   scrub = null;
 });
 document.addEventListener("pointercancel", () => { if (scrub) hideTip(); scrub = null; }); // the page took over: a vertical scroll
+document.addEventListener("pointerout", (e) => { // off the chart onto nothing that moves, or out of the window
+  if (e.pointerType === "mouse" && tipAt?.mouse && !e.relatedTarget?.closest?.(".chart svg")) hideTip();
+});
 document.addEventListener("click", (e) => {
   if (eatClick && e.timeStamp - eatClick < 600) { e.stopPropagation(); e.preventDefault(); }
   eatClick = 0;
