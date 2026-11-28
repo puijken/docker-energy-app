@@ -824,10 +824,18 @@ const SHEETS = {
       ["Berekening", "per nacht het gemiddelde verbruik van het huis tussen 01:00 en 05:00 (net plus wat de batterij aan het huis levert); “gewoonlijk” is de mediaan van de laatste 30 nachten, zodat een uitschieter niet meetelt"],
       ["Auto", `nachten waarin de auto thuis laadde (grijs in de grafiek${cars ? `, ${cars} van de laatste ${u.nights.length}` : ""}) tellen niet mee: de lader is ook verbruik van het huis. Herkend aan de meter: een uur van 1,5 kW of meer (zo hoog komt de basislast nooit; de lader voegt 1,6–1,8 kW toe) of een sprong van 0,8 kW tussen de uren, dus ook als de laadbeurt nog niet is ingelezen.`],
       ["Vorig jaar", u && isNum(u.ly_median_30) ? `${plain(watt(u.ly_median_30))}: dezelfde 30 nachten een jaar eerder, op dezelfde manier` : "te weinig nachten zonder laden in dezelfde periode vorig jaar"],
+      ["Laatste 12 maanden", u && isNum(u.median_365) ? `${plain(watt(u.median_365))}, mediaan van ${u.n_365} nachten: dag en nacht zo veel is ≈ ${yearKwh(u.median_365)} per jaar${isNum(u.prev_median_365) ? `; de 12 maanden daarvoor ${plain(watt(u.prev_median_365))} (${u.median_365 >= u.prev_median_365 ? "+" : "−"}${fmt[0].format(Math.abs(u.median_365 - u.prev_median_365))} W, ≈ ${yearKwh(Math.abs(u.median_365 - u.prev_median_365))} per jaar ${u.median_365 >= u.prev_median_365 ? "meer" : "minder"})` : ""}` : "—: nog geen 180 nachten zonder laden"],
+      ["Seizoen", "'s winters ligt de basislast elk jaar hoger dan 's zomers; vergelijk daarom de laatste 30 nachten met dezelfde nachten vorig jaar, en het jaar met het jaar ervoor"],
+    ]) + `<h4 class="sub">Per maand, laatste 3 jaar</h4><div class="chart" data-mmonths></div><p class="legend"><span><i class="sq" style="--c:var(--huis)"></i>mediaan per maand</span><span><i class="ln dash" style="border-top-color:var(--fg)"></i>laatste 12 maanden</span><span>W</span></p>` + rows([
+      ["Per maand", "de mediaan van de nachten in die maand, zonder de nachten waarin de auto laadde; de lopende maand lichter"],
+      ["Tot de batterij", "vóór 13 november 2026 is de basislast wat de slimme meter 's nachts afnam: zonder zon en zonder batterij is dat het hele huis"],
       ["Stekkers", "de tabel eronder splitst vannacht uit: wat elke meetstekker gemiddeld deed, en wat er voor de rest van het huis overbleef"],
-      ["Periode", "de laatste 60 nachten; vannacht = de nacht naar vandaag toe"],
+      ["Periode", "grafiek op het scherm: de laatste 60 nachten; vannacht = de nacht naar vandaag toe; per maand: de laatste 36 maanden"],
       ["Bron", "slimme meter, thuisbatterij, meetstekkers, laadsessies"],
-    ]) + link("day", "Verloop per dag in Grafana") };
+    ]) + link("day", "Verloop per dag in Grafana"), after: () => {
+      const box = $("[data-mmonths]");
+      if (box) box.innerHTML = u?.months?.length ? monthChart(u.months, u.median_365, box.clientWidth) : '<p class="empty">Laden…</p>';
+    } };
   },
   hauto() {
     const h = state.hist.data, c = h?.car;
@@ -1593,12 +1601,42 @@ function nightChart(nights, median, width) {
   return `<svg viewBox="0 0 ${W} ${H}" role="img">${grid}${bars}${med}${ticks}</svg>`;
 }
 
+// A constant load for a whole year, in kWh, rounded to 10: 385 W -> "3.370 kWh".
+const yearKwh = (w) => `${fmt[0].format(Math.round((w * 8.76) / 10) * 10)} kWh`;
+// Base load per calendar month over three years (app_meer's months[], 053): the median night of each
+// month as a bar, the running month lighter, the last 12 months' median dashed. Years under the
+// Januaries; the label shows the month, its median and how many nights it counts.
+function monthChart(months, median, width) {
+  const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(200, Math.max(150, W * 0.32)));
+  const L = 44, R = 6, T = 10, B = 24, n = Math.max(months.length, 1);
+  const max = Math.max(100, ...months.map((x) => x.w).filter(isNum), isNum(median) ? median : 0);
+  const step = [100, 200, 250, 500, 1000].find((s) => max / s <= 4) || 1000;
+  const top = Math.ceil(max / step) * step;
+  const y = (v) => T + ((top - v) / top) * (H - T - B);
+  const slotW = (W - L - R) / n, cx = (i) => L + slotW * (i + 0.5), bw = Math.max(2, Math.min(14, slotW * 0.7));
+  const f1 = (v) => v.toFixed(1);
+  let grid = "";
+  for (let v = 0; v <= top; v += step) grid += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="g"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="ax">${fmt[0].format(v)}</text>`;
+  const thisMonth = todayIso().slice(0, 7);
+  const bars = months.map((x, i) => {
+    const [yy, mm] = x.month.split("-").map(Number);
+    const run = x.month.slice(0, 7) === thisMonth;
+    const tick = mm === 1 ? `<text x="${f1(cx(i))}" y="${H - 6}" text-anchor="middle" class="ax">${yy}</text>` : "";
+    const bar = isNum(x.w) ? `<rect x="${f1(cx(i) - bw / 2)}" y="${f1(y(x.w))}" width="${f1(bw)}" height="${f1(y(0) - y(x.w))}" rx="${f1(Math.min(3, bw / 3))}" fill="var(--huis)"${run ? ' opacity=".55"' : ""}/>` : "";
+    return `<g><title>${MONTHS[mm - 1]} ${yy}${run ? " (tot nu)" : ""}: ${isNum(x.w) ? `${fmt[0].format(x.w)} W` : "—"} (${x.n} ${x.n === 1 ? "nacht" : "nachten"})</title><rect x="${f1(cx(i) - slotW / 2)}" y="${T}" width="${f1(slotW)}" height="${H - T - B}" fill="transparent"/>${bar}</g>${tick}`;
+  }).join("");
+  const med = isNum(median) ? `<line x1="${L}" x2="${W - R}" y1="${f1(y(median))}" y2="${f1(y(median))}" stroke="var(--fg)" stroke-width="1.5" stroke-dasharray="5 4"/>` : "";
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Basislast per maand, laatste 3 jaar">${grid}${bars}${med}</svg>`;
+}
+
 function renderMeer() {
   const m = state.meer, u = m?.usage;
   setV("m-last", u?.last ? watt(u.last.w) : "—");
   setV("m-last-sub", u?.last ? `nacht naar ${dmy(u.last.night)}${u.last.car ? " · auto laadde thuis" : ""}` : "");
   setV("m-med", u && isNum(u.median_30) ? watt(u.median_30) : "—");
   setV("m-med-sub", u && isNum(u.median_30) ? `mediaan van ${u.n_30} nachten${isNum(u.ly_median_30) ? ` · vorig jaar ${fmt[0].format(u.ly_median_30)} W` : ""}` : "");
+  setV("m-year", u && isNum(u.median_365) ? watt(u.median_365) : "—");
+  setV("m-year-sub", u && isNum(u.median_365) ? `≈ ${yearKwh(u.median_365)} per jaar${isNum(u.prev_median_365) ? ` · 12 maanden daarvoor ${fmt[0].format(u.prev_median_365)} W` : ""}` : "nog geen jaar aan nachten");
   const box = $("[data-mchart]");
   if (box) box.innerHTML = u?.nights?.length ? nightChart(u.nights, u.median_30, box.clientWidth) : "";
 

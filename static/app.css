@@ -88,6 +88,7 @@ a { color: var(--accent); }
 .card h2 em.stale { color: var(--warn-text); font-weight: 600; }
 
 .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+.kpi.wide { grid-column: 1 / -1; } /* a whole row: Meer's "Laatste 12 maanden" */
 .kpi { display: flex; flex-direction: column; gap: 1px; padding: 6px 4px; margin: 0 -4px; border-radius: 10px; min-width: 0; }
 .kpi:hover, .batrow:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
 .kpi:focus-visible, .batrow:focus-visible, .pill:focus-visible, .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
