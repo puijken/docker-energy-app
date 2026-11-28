@@ -6,6 +6,9 @@
   --eigen: #199e70; --terug: #b3a68f; --ref: #9ca3af;
   --oost: #e8833a; /* the East string; West is --zon */
   --ok: #199e70; --warn: #b77d00; --bad: #d04848;
+  /* the same three as small text (pills, "verouderd", string warnings): >= 4.5:1 on the card, the page
+     and the pills' own tint (audit #10); the fills above stay as they are */
+  --ok-text: #12704f; --warn-text: #7d5400; --bad-text: #b03636;
   --f-num: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
   --f-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
@@ -14,12 +17,14 @@
   :root:not([data-theme="light"]) {
     --bg: #0c0e12; --card: #171a20; --fg: #eceef2; --muted: #969dab; --line: #262a33; --accent: #8ea2ff;
     --terug: #d8cfc0; --warn: #e0a326;
+    --ok-text: #199e70; --warn-text: #e0a326; --bad-text: #e86a6a;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0c0e12; --card: #171a20; --fg: #eceef2; --muted: #969dab; --line: #262a33; --accent: #8ea2ff;
   --terug: #d8cfc0; --warn: #e0a326;
+  --ok-text: #199e70; --warn-text: #e0a326; --bad-text: #e86a6a;
   color-scheme: dark;
 }
 
@@ -45,9 +50,9 @@ a { color: var(--accent); }
   padding: 4px 11px; background: color-mix(in srgb, var(--muted) 14%, transparent); color: var(--muted);
 }
 .pill i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; display: inline-block; }
-.pill.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
-.pill.warn { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
-.pill.bad { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+.pill.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok-text); }
+.pill.warn { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn-text); }
+.pill.bad { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad-text); }
 
 .banner {
   margin: 0 0 10px; padding: 10px 14px; border-radius: 12px; font-size: 14px;
@@ -80,7 +85,7 @@ a { color: var(--accent); }
   font-weight: 650; display: flex; justify-content: space-between; gap: 8px; align-items: baseline;
 }
 .card h2 em { font-style: normal; text-transform: none; letter-spacing: 0; font-weight: 500; font-variant-numeric: tabular-nums; }
-.card h2 em.stale { color: var(--warn); font-weight: 600; }
+.card h2 em.stale { color: var(--warn-text); font-weight: 600; }
 
 .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
 .kpi { display: flex; flex-direction: column; gap: 1px; padding: 6px 4px; margin: 0 -4px; border-radius: 10px; min-width: 0; }
@@ -208,6 +213,12 @@ body.walled .shell { display: none; }
 .wall-foot { display: flex; justify-content: space-between; gap: 2vw; color: #8e95a3; font-size: clamp(13px, 1.5vw, 20px); }
 .wall-foot .warn { color: #e0a326; }
 .wall.night .wall-flow, .wall.night .wall-k { opacity: 0; transition: opacity 2s; }
+/* no fresh data (app.js renderFreshness): dimmed, lines still, the age under the clock, status in amber */
+.wall.stale:not(.night) .wall-flow, .wall.stale:not(.night) .wall-k { opacity: .35; transition: opacity .6s; }
+.wall.stale .line { animation: none; }
+.w-stale { margin-top: 1vh; font: 600 clamp(16px, 2.2vw, 30px)/1.2 var(--f-num); color: #e9ebef; }
+.w-stale[hidden] { display: none; }
+.wall.stale #w-status { color: #e0a326; font-size: clamp(14px, 1.7vw, 22px); }
 .wall.night { filter: brightness(.45); }
 @media (max-aspect-ratio: 1/1) {
   .wall-in { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
@@ -329,3 +340,12 @@ body.walled .shell { display: none; }
   .wide .gloss { columns: 2; column-gap: 32px; }
   .wide .gloss details, .wide .gloss details:first-child { border-top: 0; border-bottom: 1px solid var(--line); }
 }
+
+/* Bigger tap areas without moving anything (audit #11): an invisible margin around small targets,
+   so each reaches ~44 px tall. Neighbours' areas may overlap a few px; the one on top wins. */
+.more, .sheet p > a, .plugs button, .pill, .seg button, .eff-row, .tplugday th button { position: relative; }
+.more::after, .sheet p > a::after { content: ""; position: absolute; inset: -12px -6px; }
+.plugs button::after, .pill::after { content: ""; position: absolute; inset: -9px -3px; }
+.seg button::after { content: ""; position: absolute; inset: -7px -2px; }
+.eff-row::after { content: ""; position: absolute; inset: -6px 0; }
+.tplugday th button::after { content: ""; position: absolute; inset: -12px -6px; }

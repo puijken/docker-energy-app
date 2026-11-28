@@ -38,7 +38,8 @@ card can link to the matching Grafana dashboard.
   hovering, at once and following the cursor, instead of the browser's own tooltip.
   Touch screens show no ✕ on a sheet (still there for screen readers), mouse screens no grab bar.
 - A wall view at `/?kiosk`: always dark, large numbers, a clock, a small shift every minute against
-  burn-in, dimmed at night, and a screen wake lock.
+  burn-in, dimmed at night, and a screen wake lock. Without fresh data (over 30 s) it dims, the lines
+  stop and "verouderd · HH:MM" shows under the clock, so old numbers never read as live.
 
 ### Historie
 
@@ -111,6 +112,9 @@ while that screen is open.
 - **Nothing runs for a page nobody sees.** After a minute hidden (another tab, a locked phone) the
   page closes its event stream and stops its timers, so the server stops reading (it reads only while
   a screen is connected); back in view it reconnects at once. The wall view stays live.
+- **Follows a deploy by itself.** `/api/config` carries a build id (a hash of the server's own files).
+  The page checks it on every reconnect and when it comes back into view: the wall view reloads at
+  once, a phone or browser when it is hidden or the moment it is opened again, never mid-use.
 - **Compressed:** pages, scripts and JSON answers are gzipped (the event stream is not, so updates
   aren't held back).
 - **Offline:** a service worker keeps the app shell; the page keeps the last values and marks them
@@ -158,6 +162,7 @@ All settings come from the environment. None of them is secret except the databa
 | `SOLAR_INTERVAL` | `60` | the Zon sheet's day per string is re-read at most this often (only while the sheet is open) |
 | `DETAIL_INTERVAL` | `60` | today per hour behind the other Thuis sheets: at most this often, only while such a sheet is open |
 | `BATTERY_INTERVAL` | `60` | the Batterij screen's data is re-read at most this often (only while a screen asks for it) |
+| `WEATHER_STATION` | (empty) | the weather station named in the outdoor and degree-day texts ("meetstation …"); "het meetstation" when unset |
 | `PLUG_LABELS` | (empty) | display names, `source=Label,...`; also the plugs the status sheet expects |
 | `LINK_DAY`, `LINK_PERIOD`, `LINK_MONEY`, `LINK_BATTERY`, `LINK_PLUGS`, `LINK_TECH`, `LINK_CAR` | (empty) | Grafana links per card and tab; a missing link hides it |
 | `FORECAST_PLANES`, `FORECAST_LOCATION`, `FORECAST_ACCURACY` | (empty) | extra lines on the forecast's info sheet: the roof planes, the location sent to the forecast service, how accurate it was when tested; each is left out when unset |

@@ -16,6 +16,7 @@ screens cost the database the same as one.
 
 import asyncio
 import datetime as dt
+import hashlib
 import decimal
 import json
 import logging
@@ -37,6 +38,11 @@ from starlette.staticfiles import StaticFiles
 log = logging.getLogger("energy-app")
 
 STATIC_DIR = Path(__file__).parent / "static"
+# Identifies this version of the page and server: a hash of the files that make it up. Pages compare
+# it with the one they started with on every reconnect and when they come back into view, and reload
+# when it changed (after a deploy a wall screen or a phone kept the old page indefinitely).
+BUILD = hashlib.sha256(b"".join(
+    p.read_bytes() for p in [Path(__file__), *sorted(STATIC_DIR.rglob("*"))] if p.is_file())).hexdigest()[:12]
 LIVE_INTERVAL = float(os.environ.get("LIVE_INTERVAL", "5"))
 TODAY_INTERVAL = float(os.environ.get("TODAY_INTERVAL", "60"))
 # Seconds between SSE comment lines, so proxies don't close an idle stream.
@@ -101,7 +107,10 @@ def client_config() -> dict:
         "forecastNotes": {key: os.environ[env].strip() for key, env in (
             ("planes", "FORECAST_PLANES"), ("location", "FORECAST_LOCATION"),
             ("accuracy", "FORECAST_ACCURACY")) if os.environ.get(env, "").strip()},
+        # The weather station named in the outdoor and degree-day texts (site-specific); unset: none.
+        "weatherStation": os.environ.get("WEATHER_STATION", "").strip() or None,
         "timeZone": os.environ.get("TZ", "Europe/Amsterdam"),
+        "build": BUILD,
         "liveInterval": LIVE_INTERVAL,
         "todayInterval": TODAY_INTERVAL,
         "batteryInterval": BATTERY_INTERVAL,
@@ -137,6 +146,7 @@ class Hub:
         self.live_read_at = 0.0
         self.today_read_at = 0.0
         self.savings_read_at = 0.0
+        self.savings_day = None  # day_start of the day the cached savings belong to
         self.battery: dict | None = None
         self.battery_read_at = 0.0
         self.history: dict[tuple, tuple[float, dict]] = {}
@@ -193,9 +203,13 @@ class Hub:
         try:
             today = await self._query_one("SELECT * FROM app_today")
             old_savings = (self.today or {}).get("savings")
-            if old_savings is None or time.monotonic() - self.savings_read_at >= SAVINGS_INTERVAL:
+            # also at once on a new day: the cached value is yesterday's (it showed for up to
+            # SAVINGS_INTERVAL after midnight)
+            new_day = (today or {}).get("day_start") != self.savings_day
+            if old_savings is None or new_day or time.monotonic() - self.savings_read_at >= SAVINGS_INTERVAL:
                 savings = await self._query_one("SELECT * FROM app_battery_savings_today")
                 self.savings_read_at = time.monotonic()
+                self.savings_day = (today or {}).get("day_start")
             else:
                 savings = old_savings
             self.today = {"ok": True, "data": today, "savings": savings,
@@ -373,13 +387,18 @@ class Hub:
             if not self.subscribers:
                 self.wake.clear()
                 await self.wake.wait()
-            async with self.lock:
-                now = time.monotonic()
-                if now - self.today_read_at >= TODAY_INTERVAL or self.today is None:
-                    await self.refresh_today()
-                    self.broadcast("today", self.today)
-                await self.refresh_live()
-                self.broadcast("live", self.live)
+            try:
+                async with self.lock:
+                    now = time.monotonic()
+                    if now - self.today_read_at >= TODAY_INTERVAL or self.today is None:
+                        await self.refresh_today()
+                        self.broadcast("today", self.today)
+                    await self.refresh_live()
+                    self.broadcast("live", self.live)
+            except Exception:
+                # Anything unexpected (a value to_json can't serialise, say) must not end the loop:
+                # that would freeze every screen until a restart. Log it and try again next round.
+                log.exception("live loop failed")
             await asyncio.sleep(LIVE_INTERVAL)
 
 

@@ -37,6 +37,12 @@ function ago(seconds) {
 }
 
 const state = { config: { links: {}, plugLabels: {}, liveInterval: 5, staleAfter: {} }, live: null, today: null, liveAt: 0, cached: false, auth: "ok" };
+// Today's figures only while they are today's: after midnight, offline or before the server's first
+// read of the new day, a cached (yesterday's) answer would show under "vandaag" (audit #6). Every
+// reader goes through these; a timer redraws when the date changes (start()).
+const isToday = (iso) => !!iso && ymd(iso).join() === ymd(new Date().toISOString()).join();
+const todayData = () => (isToday(state.today?.data?.day_start) ? state.today.data : null);
+const todaySavings = () => (todayData() ? state.today.savings : null);
 const wallMode = new URLSearchParams(location.search).has("kiosk");
 
 // ---------- flow picture: who feeds whom (app_live.flow_*_w, derived in SQL from measurements) ----------
@@ -103,6 +109,7 @@ function flowSvg() {
     ${flowNode("bat", "batterij", "Batterij", 180, 262, "var(--bat)", [["bat-k", -10, 10.5], ["bat", 11, 20, "big"], ["bat-state", 27, 10.5]])}
     ${flowCorner("gas", "gas", "Gas vandaag", 30, 30, "var(--gas)")}
     <g class="node" data-sheet="buiten" tabindex="0" role="button" aria-label="Buitentemperatuur">
+      <rect x="292" y="10" width="66" height="44" fill="transparent"/><!-- tap area: the value alone is ~20 px tall -->
       <text data-t="buiten" x="352" y="36" class="big" font-size="16" fill="var(--fg)" text-anchor="end">—</text>
     </g>
   </svg>`;
@@ -138,7 +145,8 @@ function renderFlow(svg, d, today) {
 
   circleValue(t, "zon", has ? d.solar_w : null);
   kwhToday("zon", today?.generated_kwh);
-  circleValue(t, "huis", has ? d.house_w : null);
+  // house use below 0 is a sampling artefact (P1 and battery read at different instants): show 0
+  circleValue(t, "huis", has ? Math.max(0, d.house_w) : null);
   kwhToday("huis", today?.consumption_kwh);
 
   const cw = d ? d.battery_cells_w : null;
@@ -206,7 +214,7 @@ function liveAge() {
 
 function renderLive() {
   const d = state.live?.data || null;
-  const today = state.today?.data || null;
+  const today = todayData() || null;
   $$("[data-flow] > svg").forEach((svg) => renderFlow(svg, d, today));
 
   const plugs = $("#plugs");
@@ -238,8 +246,8 @@ function renderLive() {
 }
 
 function renderToday() {
-  const t = state.today?.data || null;
-  const s = state.today?.savings || null;
+  const t = todayData() || null;
+  const s = todaySavings() || null;
   const note = $('[data-note="today"]');
   if (note) note.hidden = !!(t && isNum(t.consumption_kwh));
   setV("opgewekt", t && isNum(t.generated_kwh)
@@ -256,7 +264,12 @@ function renderToday() {
   if (state.battery) renderBattery();
 }
 
-const weekday = (offsetDays) => new Date(Date.now() + offsetDays * 86400000).toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "short", timeZone: TZ });
+// the calendar day offsetDays from today in the app's time zone (not now + 24 h, which lands on the
+// wrong day on the evening before the spring clock change)
+const weekday = (offsetDays) => {
+  const [y, m, d] = ymd(new Date().toISOString());
+  return new Date(Date.UTC(y, m - 1, d + offsetDays, 12)).toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "short", timeZone: "UTC" });
+};
 const approx = (x) => (isNum(x) ? `≈ ${kwh(x)}` : "—");
 
 function forecastAge() {
@@ -266,7 +279,7 @@ function forecastAge() {
 
 function renderForecast() {
   const f = state.today?.forecast || null;
-  const t = state.today?.data || null;
+  const t = todayData() || null;
   const label = $("#fc-label");
   const age = forecastAge();
   const stale = !isNum(age) || age > (state.config.staleAfter?.forecast ?? 10800);
@@ -293,6 +306,14 @@ function renderFreshness() {
     label.textContent = `live · ${clock(d.flow_time)}`;
   }
   label.classList.toggle("stale", stale);
+  // The wall view: from across the room, old numbers must not look live (audit #32). Dimmed, the
+  // lines stand still, and "verouderd · 17:03" under the clock.
+  if (wallMode) {
+    $("#wall").classList.toggle("stale", stale);
+    const ws = $("#w-stale");
+    ws.hidden = !stale;
+    ws.textContent = !stale ? "" : d?.flow_time ? `verouderd · ${hm(d.flow_time)}` : "geen meting";
+  }
   const batStale = !d?.battery_time;
   bat.textContent = batStale ? "— · geen meting in de laatste 5 minuten" : stale ? `verouderd · ${hm(d.battery_time)}` : "live";
   bat.classList.toggle("stale", batStale || stale);
@@ -368,6 +389,9 @@ const LIVE_PERIOD = () => {
   const d = state.live?.data;
   return d?.flow_time ? `live, meting van ${clock(d.flow_time)} (elke ${fmt[0].format(state.config.liveInterval)} s nieuw)` : "live; er is geen meting van de laatste 5 minuten, daarom “—”";
 };
+// The weather station's name comes from the server's WEATHER_STATION (site-specific, kept out of this
+// public repo); without it the texts say "het meetstation".
+const station = () => (state.config.weatherStation ? `meetstation ${esc(state.config.weatherStation)}` : "het meetstation");
 const TODAY_PERIOD = "vandaag 00:00 – nu, geen live waarde (elke minuut bijgewerkt)";
 
 const SHEETS = {
@@ -396,7 +420,7 @@ const SHEETS = {
     return { title: `Batterij · ${isNum(d?.soc) ? fmt[0].format(d.soc) + "%" : "—"}`, body: rows([
       ["Wat", "Laadniveau en wat de cellen nu doen: laden (groen; uit zon of het stopcontact) of ontladen (rood). Rode lijn naar het huis: de batterij levert uit de cellen. Rode lijn van het net: de batterij laadt uit het stopcontact."],
       ["Nu", d ? `cellen ${plain(power(d.battery_cells_w))} (boven nul ontladen) · naar het huis ${plain(power(d.battery_ac_w))}${d.socket_in_w >= 10 ? ` · uit het stopcontact ${plain(power(d.socket_in_w))}` : ""}` : "—"],
-      ["Vandaag", (() => { const t = state.today?.data; return t && isNum(t.battery_charged_kwh) ? `geladen ${num(t.battery_charged_kwh)} kWh · ontladen ${num(t.battery_discharged_kwh)} kWh` : "—"; })()],
+      ["Vandaag", (() => { const t = todayData(); return t && isNum(t.battery_charged_kwh) ? `geladen ${num(t.battery_charged_kwh)} kWh · ontladen ${num(t.battery_discharged_kwh)} kWh` : "—"; })()],
     ]) + `<h4 class="sub">Laadniveau vandaag</h4><div class="chart" data-bsoc></div>` + rows([
       ["Waarom verschil", "Tussen cellen en huis gaat stroom verloren bij het omzetten, en de batterij gebruikt zelf wat (stand-byverbruik)."],
       ["Temperatuur", d && isNum(d.battery_temp_c) ? `${fmt[1].format(d.battery_temp_c)} °C: de temperatuur die de batterij zelf meldt, dezelfde als in de Anker-app (welke sensor precies is niet bekend)` : "—"],
@@ -408,16 +432,16 @@ const SHEETS = {
     } };
   },
   huis() {
-    const d = state.live?.data, x = state.detail?.data, t = state.today?.data;
+    const d = state.live?.data, x = state.detail?.data, t = todayData();
     maybeFetchDetail();
-    const calc = d?.flow_time ? `${plain(power(d.grid_w))} net + ${plain(power(d.battery_ac_w))} uit de batterij${d.socket_in_w >= 10 ? ` − ${plain(power(d.socket_in_w))} batterij uit het stopcontact` : ""} = ${plain(power(d.house_w))}` : "—";
+    const calc = d?.flow_time ? `${plain(power(d.grid_w))} net + ${plain(power(d.battery_ac_w))} uit de batterij${d.socket_in_w >= 10 ? ` − ${plain(power(d.socket_in_w))} batterij uit het stopcontact` : ""} = ${plain(power(d.house_w))}${d.house_w < 0 ? " (onder 0 kan niet: net en batterij worden op net andere momenten gemeten; de cirkel toont 0 W)" : ""}` : "—";
     const ySoFar = yesterdaySoFar(x?.hours);
     // today so far from the same hourly figures as yesterday (the counters' day total runs ~1 % higher)
     const hSoFar = (x?.hours || []).reduce((a, h) => (isNum(h.house_kwh) ? (a ?? 0) + h.house_kwh : a), null);
     const plugs = x?.plugs || [];
     const plugSum = plugs.reduce((a, p) => a + (isNum(p.today_kwh) ? p.today_kwh : 0), 0);
     const night = x?.night;
-    return { title: `Verbruik nu · ${plain(power(d?.house_w))}`, body: rows([
+    return { title: `Verbruik nu · ${plain(power(isNum(d?.house_w) ? Math.max(0, d.house_w) : null))}`, body: rows([
       ["Wat", "Wat het huis nu gebruikt, auto en stekkers inbegrepen."],
       ["Nu", calc],
       ["Vandaag", t && isNum(t.consumption_kwh) ? `${num(t.consumption_kwh)} kWh` : "—"],
@@ -433,7 +457,7 @@ const SHEETS = {
     ]) + link("day", "Verbruik vandaag in Grafana"), after: drawChart("huis", { bars: [{ key: "house_kwh", color: "var(--huis)", label: "vandaag" }], tick: { key: "y_house_kwh", label: "gisteren" } }) };
   },
   netnu() {
-    const d = state.live?.data, x = state.detail?.data, t = state.today?.data;
+    const d = state.live?.data, x = state.detail?.data, t = todayData();
     maybeFetchDetail();
     const g = d?.grid_w;
     const what = !isNum(g) ? "—" : g >= 10 ? `afname ${plain(power(g))}` : g <= -10 ? `teruglevering ${plain(power(-g))}` : "bijna niets";
@@ -449,7 +473,7 @@ const SHEETS = {
     ]) + link("day", "Net vandaag in Grafana"), after: drawChart("net", { bars: [{ key: "import_kwh", color: "var(--uit)", label: "afgenomen" }, { key: "export_kwh", color: "var(--eigen)", neg: true, label: "teruggeleverd" }], digits: 1 }) };
   },
   gas() {
-    const t = state.today?.data, x = state.detail?.data;
+    const t = todayData(), x = state.detail?.data;
     maybeFetchDetail();
     return { title: `Gas vandaag · ${t && isNum(t.gas_m3) ? fmt[2].format(t.gas_m3) + " m³" : "—"}`, body: rows([
       ["Wat", "Gasverbruik vandaag, en wanneer: de verwarming, warm water en koken."],
@@ -459,7 +483,7 @@ const SHEETS = {
     ]) + chartBlock("gas", "Vandaag per uur", `${sq("var(--gas)", "gas (m³ per uur)")}${lineLg("buiten (°C, rechts)", "var(--muted)")}`) + rows([
       ["Berekening", "stand van de gasmeter nu − stand om 00:00; per uur de stand aan het begin van het volgende uur − die aan het begin van dit uur"],
       ["Periode", TODAY_PERIOD + "; de gasmeter meldt zich om de 5 minuten"],
-      ["Bron", "gasmeter via de slimme meter; buitentemperatuur Buienradar, het meetstation"],
+      ["Bron", `gasmeter via de slimme meter; buitentemperatuur Buienradar, ${station()}`],
     ]) + link("period", "Gas in Grafana"), after: drawChart("gas", { bars: [{ key: "gas_m3", color: "var(--gas)", label: "gas m³" }], line: { points: outdoorPoints(), color: "var(--muted)" }, digits: 1 }) };
   },
   buiten() {
@@ -470,7 +494,7 @@ const SHEETS = {
       ["Vandaag", outdoorRange()],
     ]) + chartBlock("buiten", "Vandaag", `${lineLg("buiten (°C, rechts)", "var(--muted)")}${sq("var(--gas)", "gas (m³ per uur)")}`) + rows([
       ["Periode", d?.outdoor_time ? `meting van ${hm(d.outdoor_time)}; er komt er elke 10 minuten een` : "geen meting in de laatste 3 uur, daarom “—”"],
-      ["Bron", "Buienradar, het meetstation (elke 10 minuten opgehaald)"],
+      ["Bron", `Buienradar, ${station()} (elke 10 minuten opgehaald)`],
       ["Waarom niet de sensor bij de voordeur", "die hangt tegen het huis en wordt in de zon veel te warm"],
     ]), after: drawChart("buiten", { bars: [{ key: "gas_m3", color: "var(--gas)", label: "gas m³" }], line: { points: outdoorPoints(), color: "var(--muted)" }, digits: 1 }) };
   },
@@ -497,7 +521,7 @@ const SHEETS = {
   },
   // One plug (key "plug:<name>"): today per hour against its usual day, like the Huis sheet against yesterday.
   plug(name) {
-    const d = state.live?.data, x = state.detail?.data, t = state.today?.data;
+    const d = state.live?.data, x = state.detail?.data, t = todayData();
     maybeFetchDetail();
     const l = (d?.plugs || []).find((q) => q.name === name), p = (x?.plugs || []).find((q) => q.name === name);
     const hours = (x?.hours || []).map((h, i) => ({ hour: h.hour, w: p?.w?.[i], uw: p?.uw?.[i] }));
@@ -525,7 +549,7 @@ const SHEETS = {
     ]) + '<p><a href="#" data-sheet="plugs">Alle stekkers ›</a></p>' + link("plugs", "Stekkers in Grafana"), after: draw };
   },
   opgewekt() {
-    const t = state.today?.data;
+    const t = todayData();
     return { title: `Opgewekt · ${plain(kwh(t?.generated_kwh))}`, body: rows([
       ["Wat", "Wat de zonnepanelen vandaag opwekten."],
       ["Berekening", "het zonvermogen van de thuisbatterij, opgeteld sinds 00:00 (elke 5 s gemeten)"],
@@ -537,7 +561,7 @@ const SHEETS = {
     ]) + link("period", "Opgewekt per dag in Grafana") };
   },
   verbruik() {
-    const t = state.today?.data;
+    const t = todayData();
     const calc = t && isNum(t.consumption_kwh)
       ? `${num(t.import_kwh)} − ${num(t.export_kwh)} + ${num(t.battery_out_kwh)} − ${num(t.battery_in_kwh)} = ${num(t.consumption_kwh)} kWh` : "—";
     return { title: `Verbruik · ${plain(kwh(t?.consumption_kwh))}`, body: rows([
@@ -549,7 +573,7 @@ const SHEETS = {
     ]) + link("period", "Verbruik per dag in Grafana") };
   },
   zelfvoorzienend() {
-    const t = state.today?.data;
+    const t = todayData();
     return { title: `Zelfvoorzienend · ${plain(pct(t?.self_sufficiency))}`, body: rows([
       ["Wat", "Deel van je verbruik dat uit eigen zon kwam, direct of via de batterij."],
       ["Berekening", "eigen verbruik ÷ verbruik; eigen verbruik = verbruik − afgenomen"],
@@ -559,7 +583,7 @@ const SHEETS = {
     ]) + link("period", "Zelfvoorzienend per dag in Grafana") };
   },
   net() {
-    const t = state.today?.data;
+    const t = todayData();
     return { title: `Afgenomen · teruggeleverd`, body: rows([
       ["Afgenomen", `${plain(kwh(t?.import_kwh, 2))}: van het net`],
       ["Teruggeleverd", `${plain(kwh(t?.export_kwh, 2))}: naar het net`],
@@ -571,7 +595,7 @@ const SHEETS = {
   verwacht() {
     const notes = state.config.forecastNotes || {};
     const f = state.today?.forecast;
-    const t = state.today?.data;
+    const t = todayData();
     return { title: `Zon verwacht · morgen ${f && f.tomorrow_hours >= 24 ? plain(approx(f.tomorrow_kwh)) : "—"}`, body: rows([
       ["Wat", "Hoeveel de zonnepanelen naar verwachting opwekken. Een verwachting, geen meting: daarom “≈”."],
       ["Nog vandaag", f && isNum(f.rest_today_kwh) ? `${plain(approx(f.rest_today_kwh))} van nu tot middernacht; de hele dag ${plain(approx(f.today_kwh))}${t && isNum(t.generated_kwh) ? `, opgewekt tot nu ${plain(kwh(t.generated_kwh))}` : ""}` : "—"],
@@ -584,7 +608,7 @@ const SHEETS = {
     ]) + link("period", "Verwacht en opgewekt per dag in Grafana") };
   },
   rekening() {
-    const t = state.today?.data;
+    const t = todayData();
     return { title: `Energierekening vandaag · ${eur(t?.net_eur)}`, body: rows([
       ["Wat", "Wat vandaag tot nu kost volgens je energiecontract."],
       ["Stroom", t ? `${eur(t.import_eur)} afname − ${eur(t.export_eur)} teruglevering (tot en met 2026 verrekend tegen de stroomprijs: salderen)` : "—"],
@@ -596,7 +620,7 @@ const SHEETS = {
     ]) + link("money", "Energierekening in Grafana") };
   },
   bespaard() {
-    const s = state.today?.savings;
+    const s = todaySavings();
     if (!s) return { title: "Bespaard door de batterij · —", body: "<p>Nog geen gegevens vandaag, of de dag ligt vóór de installatie van de batterij.</p>" };
     return { title: `Bespaard door de batterij · ≈ ${eur(s.savings_eur)}`, body: rows([
       ["Wat", "Wat de batterij je vandaag bespaart onder de regels van 2027: geen salderen meer, afname en teruglevering apart afgerekend."],
@@ -630,7 +654,7 @@ const SHEETS = {
     ]) + link("battery", "Batterij in Grafana") };
   },
   geladen() {
-    const t = state.today?.data;
+    const t = todayData();
     return { title: "Geladen · ontladen vandaag", body: rows([
       ["Geladen", `${plain(kwh(t?.battery_charged_kwh))} de cellen in`],
       ["Ontladen", `${plain(kwh(t?.battery_discharged_kwh))} de cellen uit`],
@@ -720,8 +744,8 @@ const SHEETS = {
       ["Bron", "thuisbatterij"],
     ]) + link("battery", "Batterij in Grafana") };
   },
-  hgraad() { return histSheet("Graaddagen", "degree_days", "", "Hoe koud het was, zo gerekend dat het past bij hoeveel dit huis stookt. Twee keer zoveel graaddagen betekent ongeveer twee keer zoveel gas voor verwarming.", "per dag max(17 °C − daggemiddelde buiten, 0) × 1,1 (nov–feb), × 1,0 (mrt, okt) of × 0,8 (apr–sep): gewogen graaddagen op een basis van 17 °C. Waarom 17: over 5½ jaar gasverbruik van dit huis past dit het best (beter dan 18 °C, en beter dan ongewogen); met ongeveer 20,5 °C binnen leveren zon, mensen en apparaten de rest. Mindergas rekent met 20,5 °C binnen en een stookgrens van 18 °C en telt daardoor meer graaddagen (oktober 2026: ≈ 258 tegen 149 hier). KNMI levert de daggemiddelden een of twee dagen later; tot dan staat een dag zonder graaddagen.", "KNMI, het meetstation (gemeten daggemiddelde)"); },
-  hgpg() { return histSheet("Gas per graaddag", "gas_per_degree_day", "m³", "Gas gedeeld door graaddagen: zo zie je of je zuiniger stookt, los van of het een koude of zachte periode was. Een lagere thermostaat of betere isolatie geeft een lager getal.", "gas op dagen met een graaddagwaarde ÷ graaddagen; pas vanaf 5 graaddagen (anders “—”). Gas voor warm water en koken telt ook mee (ongeveer 0,2 m³ per dag), dus in de zomer is dit getal hoog.", "gasmeter en KNMI"); },
+  hgraad() { return histSheet("Graaddagen", "degree_days", "", "Hoe koud het was, zo gerekend dat het past bij hoeveel dit huis stookt. Twee keer zoveel graaddagen betekent ongeveer twee keer zoveel gas voor verwarming.", "per dag max(17 °C − daggemiddelde buiten, 0) × 1,1 (nov–feb), × 1,0 (mrt, okt) of × 0,8 (apr–sep): gewogen graaddagen op een basis van 17 °C. Waarom 17: over 5½ jaar gasverbruik van dit huis past dit het best (beter dan 18 °C, en beter dan ongewogen); met ongeveer 20,5 °C binnen leveren zon, mensen en apparaten de rest. Mindergas rekent met 20,5 °C binnen en een stookgrens van 18 °C en telt daardoor meer graaddagen (oktober 2026: ≈ 258 tegen 149 hier). KNMI levert de daggemiddelden een of twee dagen later; tot dan staat een dag zonder graaddagen.", `KNMI, ${station()} (gemeten daggemiddelde)`); },
+  hgpg() { return histSheet("Gas per graaddag", "gas_per_degree_day", "m³", "Gas gedeeld door graaddagen: zo zie je of je zuiniger stookt, los van of het een koude of zachte periode was. Een lagere thermostaat of betere isolatie geeft een lager getal.", "gas op dagen met een graaddagwaarde ÷ graaddagen; pas vanaf 5 graaddagen (anders “—”). Gas voor warm water en koken telt ook mee (ongeveer 0,2 m³ per dag), dus in de zomer is dit getal hoog.", `gasmeter en KNMI (${station()})`); },
   temperatuur() {
     const d = state.live?.data, sm = state.battery?.summary;
     return { title: `Temperatuur batterij · ${d && isNum(d.battery_temp_c) ? fmt[0].format(d.battery_temp_c) + " °C" : "—"}`, body: rows([
@@ -908,7 +932,7 @@ $("#sheet").addEventListener("click", (e) => { if (e.target === e.currentTarget)
 const HIST_UNITS = { day: "Dag", week: "Week", month: "Maand", year: "Jaar" };
 const MONTHS = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
 const DAYS = ["ma", "di", "wo", "do", "vr", "za", "zo"];
-state.hist = { unit: "month", anchor: null, data: null, loading: false };
+state.hist = { unit: "month", anchor: null, onToday: true, data: null, loading: false }; // onToday: the anchor follows the date (past midnight too)
 
 // Calendar date of an instant in the app's time zone, as [y, m (1-12), d].
 function ymd(iso) {
@@ -1341,10 +1365,12 @@ function renderHistCar(h) {
 let histTimer = null, histSeq = 0;
 async function fetchHistory() {
   const seq = ++histSeq;
+  if (state.hist.onToday) state.hist.anchor = todayIso(); // an app left open past midnight moves to the new day
   const q = new URLSearchParams({ unit: state.hist.unit, date: state.hist.anchor || todayIso() });
   try {
     const r = await fetch(`/api/history?${q}`, { cache: "no-store", credentials: "same-origin" });
-    if (r.ok && seq === histSeq) { const j = await r.json(); if (j.data) state.hist.data = j.data; }
+    // the running period (the one holding today) follows the date; a past one stays put
+    if (r.ok && seq === histSeq) { const j = await r.json(); if (j.data) { state.hist.data = j.data; state.hist.onToday = !!j.data.running; } }
   } catch { /* offline: keep what we have */ }
   if (seq === histSeq) { renderHistory(); refreshSheet(); prefetchPrevHistory(); }
 }
@@ -1361,10 +1387,10 @@ function prefetchPrevHistory() {
   const q = new URLSearchParams({ unit: h.unit, date: histShift(h, -1) });
   fetch(`/api/history?${q}`, { cache: "no-store", credentials: "same-origin" }).catch(() => {});
 }
-function histGo(anchor) { state.hist.anchor = anchor; fetchHistory(); }
+function histGo(anchor) { state.hist.anchor = anchor; state.hist.onToday = anchor === todayIso(); fetchHistory(); }
 document.addEventListener("click", (e) => {
   const u = e.target.closest("[data-hunit]");
-  if (u) { state.hist.unit = u.dataset.hunit; state.hist.anchor = todayIso(); fetchHistory(); return; }
+  if (u) { state.hist.unit = u.dataset.hunit; state.hist.anchor = todayIso(); state.hist.onToday = true; fetchHistory(); return; }
   if (e.target.closest("#hist-prev") && state.hist.data) histGo(histShift(state.hist.data, -1));
   if (e.target.closest("#hist-next") && state.hist.data) histGo(histShift(state.hist.data, 1));
 });
@@ -1478,9 +1504,20 @@ async function fetchContracts() {
 state.meer = null;
 const PLACE = { home: "thuis", work: "op het werk", public: "onderweg" };
 const watt = (x) => (isNum(x) ? unit(fmt[0].format(x), "W") : "—");
-const daysAgo = (d) => (d ? Math.floor((Date.now() - new Date(`${d}T12:00:00Z`)) / 86400000) : null);
+// whole calendar days between a date (YYYY-MM-DD) and today in the app's time zone (it anchored at
+// 12:00 UTC before, one day too low in the morning)
+const daysAgo = (d) => (d ? Math.round((Date.parse(todayIso()) - Date.parse(d)) / 86400000) : null);
 const nowIso = () => new Date().toISOString();
 
+// energy-monitor's upload_status.detail is generic English (a public image): "8 session(s)",
+// "2026-11-27: 6741.186 m3". Said here in Dutch with the app's number format; anything else as is.
+function uploadDetail(t) {
+  let m = /^(\d+) session\(s\)$/.exec(t);
+  if (m) return `${m[1]} ${m[1] === "1" ? "sessie" : "sessies"}`;
+  m = /^(\d{4}-\d{2}-\d{2}): ([\d.]+) m3$/.exec(t);
+  if (m) return `stand ${dmy(m[1])}: ${fmt[3].format(Number(m[2]))} m³`;
+  return t;
+}
 // Sources that report in the background, next to the live ones of sources(): when each last delivered.
 function backgroundSources() {
   const s = state.meer?.status;
@@ -1494,7 +1531,7 @@ function backgroundSources() {
     const age = secondsBetween(nowIso(), u.last_ok);
     const ok = isNum(age) && age <= limit;
     return { name, ok, error: !ok && u.last_error ? u.last_error : null,
-      text: u.last_ok ? `${ago(age)}${u.detail ? ` · ${u.detail}` : ""}` : "nog nooit gelukt" };
+      text: u.last_ok ? `${ago(age)}${u.detail ? ` · ${uploadDetail(u.detail)}` : ""}` : "nog nooit gelukt" };
   };
   const out = [
     upload("pvoutput", "PVOutput", 15 * 60),
@@ -1713,7 +1750,7 @@ function renderBattery() {
   if (chart && b?.soc && b.day_start) chart.innerHTML = socChart(b.soc, b.day_start, b.day_end, chart.clientWidth);
   setV("soc-range", s && isNum(s.min_soc) ? `vandaag ${fmt[0].format(s.min_soc)}–${fmt[0].format(s.max_soc)}%` : "");
   renderEfficiency(b?.efficiency);
-  const t = state.today?.data;
+  const t = todayData();
   setV("socket-today", t && isNum(t.battery_in_kwh) && t.battery_in_kwh >= 0.05 ? `waarvan ${num(t.battery_in_kwh)} kWh uit het stopcontact` : "");
   setV("sinds-nieuw", s && isNum(s.charged_total_kwh) ? `${num(s.charged_total_kwh)}<small>· ${num(s.discharged_total_kwh)} kWh</small>` : "—");
   setV("sinds-nieuw-sub", s ? "tellers van de batterij" : "");
@@ -1766,7 +1803,7 @@ function stringsBlock(day) {
     if (!day) return "—";
     const m = day[`${key}_low_min`];
     const txt = isNum(m) ? `${fmt[0].format(m)} min` : "—";
-    return s?.[`${key}_stuck`] ? `<b style="color:var(--bad)">${txt} · nu</b>` : m > 0 ? `<b style="color:var(--warn)">${txt}</b>` : txt;
+    return s?.[`${key}_stuck`] ? `<b style="color:var(--bad-text)">${txt} · nu</b>` : m > 0 ? `<b style="color:var(--warn-text)">${txt}</b>` : txt;
   };
   const head = STRINGS.map(([, name, c]) => `<th><i class="sq" style="--c:${c}"></i>${name}</th>`).join("");
   const table = `<table class="t27 tstrings"><thead><tr><th></th>${head}</tr></thead><tbody>
@@ -1991,7 +2028,7 @@ function startScreenData(name) {
     if (!state.hist.anchor) state.hist.anchor = todayIso();
     fetchHistory();
     // a running period changes during the day; a past one doesn't
-    histTimer = setInterval(() => { if (state.hist.data?.running) fetchHistory(); }, 60000);
+    histTimer = setInterval(() => { if (state.hist.data?.running || (state.hist.onToday && state.hist.anchor !== todayIso())) fetchHistory(); }, 60000);
   }
   if (name === "batterij" && !wallMode) {
     fetchBattery();
@@ -2050,12 +2087,14 @@ async function checkAuth() {
 // gets an error reply (Traefik's 502/404 while the app restarts or redeploys, or Authelia's login page):
 // then readyState is CLOSED and nothing would ever update again. So reconnect ourselves, with a
 // growing delay (5 s, 10 s, … up to a minute), unless the session needs a new login.
-let source = null, failures = 0, retryTimer = null;
+let source = null, failures = 0, retryTimer = null, streamOpened = false;
 function connect() {
   clearTimeout(retryTimer); retryTimer = null;
   if (source) source.close();
   const es = new EventSource("/api/stream");
   source = es;
+  // every reconnect after the first may be to a new version (a deploy restarts the server)
+  es.addEventListener("open", () => { if (streamOpened) checkBuild(); streamOpened = true; });
   es.addEventListener("live", (e) => {
     state.live = JSON.parse(e.data); state.liveAt = Date.now(); state.cached = false; failures = 0; state.auth = "ok";
     renderLive(); refreshSheet(); save();
@@ -2077,6 +2116,24 @@ function connect() {
     renderStatus(); renderFreshness(); renderWallFoot();
   };
 }
+// After a deploy the server's build id changes (BUILD in app.py). The wall view reloads at once; a
+// phone or browser not while someone is using it: when it is hidden, or the moment it comes back into
+// view (an installed app kept in memory runs the old page otherwise).
+let reloadPending = false;
+async function checkBuild(atOnce = false) { // atOnce: the page just came into view
+  try {
+    const r = await fetch("/api/config", { cache: "no-store", credentials: "same-origin" });
+    const b = r.ok ? (await r.json()).build : null;
+    if (!b || !state.config.build || b === state.config.build) return;
+  } catch { return; }
+  if (atOnce || wallMode || document.visibilityState === "hidden") location.reload();
+  else reloadPending = true;
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") { if (reloadPending) location.reload(); }
+  else checkBuild(true);
+});
+
 // A page nobody sees (another tab, a locked phone, the app in the background) needs no live data:
 // after a minute hidden the stream closes and the screen's timers stop, so the server stops reading
 // the database (it reads only while a screen is connected) and nothing crosses the network. Back in
@@ -2306,7 +2363,12 @@ async function start() {
   if (wallMode) startWall();
   if (state.live) { renderToday(); renderLive(); }
   connect();
-  setInterval(() => { renderFreshness(); }, 1000);
+  let shownDay = todayIso();
+  setInterval(() => {
+    renderFreshness();
+    // a new day: yesterday's figures go blank even when no new data arrives (offline, wall view)
+    if (todayIso() !== shownDay) { shownDay = todayIso(); renderToday(); renderLive(); }
+  }, 1000);
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
   // Warm the server's cache for Geld (app_money ~0.2 s, cached 5 min) a few seconds after opening, so
   // the tab answers at once. Not on the wall screen, which never shows Geld; not when Geld is already open.
