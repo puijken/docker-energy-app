@@ -27,8 +27,9 @@ card can link to the matching Grafana dashboard.
 - **Today in detail behind a tap:** the sun opens a sheet per solar string (live voltage, current and
   power, today's energy per string against each plane's forecast, minutes at low voltage, a bar per
   hour), and the house, grid, gas, outdoor, battery and plug circles open today per hour (against
-  yesterday, import and export, gas with the outdoor temperature, the charge curve, each plug against
-  its usual use up to the same time). Read only while such a sheet is open.
+  yesterday, import and export, gas with the outdoor temperature, the charge curve). Each plug opens
+  its own sheet: today per hour against its usual hour (median of 14 days), so far against its usual
+  day so far, its share of the house; "Alle stekkers" lists them all. Read only while such a sheet is open.
 - A status pill (stale sources, warnings) and an info sheet behind every number: what it is, how it
   is calculated, the period (live or today), and the source.
 - Made for a phone: a sheet closes by pulling it down (or a quick flick) from its top, and a finger on
@@ -132,7 +133,7 @@ while that screen is open.
 | `app_contracts()` | function → JSON | Contracten: `contracts[]` with `id`, `name`, `start`, `end`, `kind`, `status`, prices (`p_normal`, `p_low`, `f_normal`, `f_low`, `p_gas`, `p_fixed`), `feedin_bands`, `feedin_cost_per_kwh`, `salderen`, and the term's `days`, kWh, m³, cost parts, `net_eur`, `generated_kwh`, `consumption_kwh`, `self_sufficiency` |
 | `app_solar_live` | zero or one | per solar string: newest `east_v`/`east_a`/`east_w`, `west_v`/`west_a`/`west_w`, `strings_time`, and `east_stuck`/`west_stuck` (a string held at low voltage now). Optional, read with `app_live` in its own try |
 | `app_solar()` | function → JSON | the Zon sheet: today per hour and in total per string (`east_wh`, `west_wh`, forecasts `*_fc_wh`, minutes at low voltage `*_low_min`), the forecast up to now (`*_fc_sofar_kwh`), first and last low-voltage reading |
-| `app_today_detail()` | function → JSON | the other Thuis sheets: `hours[]` (`house_kwh`, `y_house_kwh` yesterday's same hour, `import_kwh`, `export_kwh`, `gas_m3`), `outdoor[]`, `plugs[]` (`today_kwh`, `usual_kwh`, `usual_sofar_kwh`, `w[]` per hour), `night` (mean use 01:00–05:00, `car`) |
+| `app_today_detail()` | function → JSON | the other Thuis sheets: `hours[]` (`house_kwh`, `y_house_kwh` yesterday's same hour, `import_kwh`, `export_kwh`, `gas_m3`), `outdoor[]`, `plugs[]` (`today_kwh`, `usual_kwh`, `usual_sofar_kwh`, `w[]` per hour, `uw[]` the usual power per hour), `night` (mean use 01:00–05:00, `car`) |
 | `app_history_car(unit, date)` | function → JSON | Historie's Auto card for the same period: `places[]`/`ly_places[]` per place, `net_eur`/`ly_net_eur`, `buckets[]` (kWh per day or month and place), `last_home`, `last_session`, `first`, `reading_day`. `/api/history` returns it as `car` |
 | `app_forecast` | zero or one | solar forecast: `fetched_at`, `today_kwh`, `rest_today_kwh` (now → midnight), `tomorrow_kwh`, `tomorrow_hours` (24 when tomorrow is complete). Optional: when it is missing or fails, the rest of the screen works and the card shows “—” |
 

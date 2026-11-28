@@ -212,7 +212,7 @@ function renderLive() {
   const plugs = $("#plugs");
   const list = d?.plugs || [];
   plugs.innerHTML = list.length
-    ? list.map((p) => `<button type="button" data-sheet="plugs">${plugIcon(p.name)}<span>${esc(plugLabel(p.name))}</span><b>${plain(power(p.w))}</b></button>`).join("")
+    ? list.map((p) => `<button type="button" data-sheet="plug:${esc(p.name)}">${plugIcon(p.name)}<span>${esc(plugLabel(p.name))}</span><b>${plain(power(p.w))}</b></button>`).join("")
     : '<p class="empty">Geen stekker meldde zich in de laatste 15 minuten.</p>';
   const sum = list.reduce((a, p) => a + (isNum(p.w) ? p.w : 0), 0);
   $("#plugs-sum").textContent = list.length ? `live · samen ${plain(power(sum))}` : "live";
@@ -484,16 +484,45 @@ const SHEETS = {
     const vs = (p) => (p && isNum(p.usual_sofar_kwh) ? `<small>gewoonlijk ${fmt[2].format(p.usual_sofar_kwh)}</small>${isNum(p.usual_kwh) ? `<small>hele dag ${fmt[2].format(p.usual_kwh)}</small>` : ""}` : "");
     const table = names.length ? `<table class="t27 tplugday"><thead><tr><th></th><th>nu</th><th>vandaag kWh</th><th>per uur</th></tr></thead><tbody>${names.map((n) => {
       const l = live[n], p = day[n];
-      return `<tr><th scope="row">${esc(plugLabel(n))}</th><td>${l ? plain(power(l.w)) : "—"}</td><td>${p && isNum(p.today_kwh) ? fmt[2].format(p.today_kwh) : "—"}${vs(p)}</td><td>${p ? plugSpark(p.w, max) : ""}</td></tr>`;
+      return `<tr data-sheet="plug:${esc(n)}"><th scope="row"><button type="button" data-sheet="plug:${esc(n)}">${esc(plugLabel(n))} ›</button></th><td>${l ? plain(power(l.w)) : "—"}</td><td>${p && isNum(p.today_kwh) ? fmt[2].format(p.today_kwh) : "—"}${vs(p)}</td><td>${p ? plugSpark(p.w, max) : ""}</td></tr>`;
     }).join("")}</tbody></table>` : "<p>Geen stekker meldde zich in de laatste 15 minuten.</p>";
     return { title: "Stekkers", body: rows([
-      ["Wat", "Losse apparaten met een meetstekker. Ze zitten al in het verbruik van het huis, niet erbovenop."],
+      ["Wat", "Losse apparaten met een meetstekker. Ze zitten al in het verbruik van het huis, niet erbovenop. Tik op een stekker voor zijn dag per uur."],
     ]) + table + rows([
       ["Gewoonlijk", "wat die stekker de laatste 14 dagen tot dezelfde tijd gebruikte (de mediaan), zodat je het met vandaag kunt vergelijken; daarachter een hele dag"],
       ["Per uur", "gemiddeld vermogen per uur vandaag, 00:00 – 24:00, alle stekkers op dezelfde schaal (hoogste uur: " + plain(power(max)) + ")"],
       ["Periode", "nu: live, elke stekker meldt zich op zijn eigen moment; vandaag: 00:00 – nu, elke minuut nieuw"],
       ["Bron", "Zigbee-meetstekkers"],
     ]) + link("plugs", "Stekkers in Grafana") };
+  },
+  // One plug (key "plug:<name>"): today per hour against its usual day, like the Huis sheet against yesterday.
+  plug(name) {
+    const d = state.live?.data, x = state.detail?.data, t = state.today?.data;
+    maybeFetchDetail();
+    const l = (d?.plugs || []).find((q) => q.name === name), p = (x?.plugs || []).find((q) => q.name === name);
+    const hours = (x?.hours || []).map((h, i) => ({ hour: h.hour, w: p?.w?.[i], uw: p?.uw?.[i] }));
+    const sofar = p && isNum(p.today_kwh) && isNum(p.usual_sofar_kwh) && p.usual_sofar_kwh > 0
+      ? `${p.today_kwh >= p.usual_sofar_kwh ? "+" : "−"}${fmt[0].format(Math.abs(p.today_kwh / p.usual_sofar_kwh - 1) * 100)} %: tot nu ${fmt[2].format(p.today_kwh)} kWh, gewoonlijk tot dezelfde tijd ${fmt[2].format(p.usual_sofar_kwh)} kWh${isNum(p.usual_kwh) ? `; een hele dag gewoonlijk ${fmt[2].format(p.usual_kwh)} kWh` : ""}`
+      : "—";
+    const share = p && isNum(p.today_kwh) && t && isNum(t.consumption_kwh) && t.consumption_kwh > 0 ? `${fmt[0].format((p.today_kwh / t.consumption_kwh) * 100)} % van wat het huis vandaag gebruikte (${num(t.consumption_kwh)} kWh)` : "—";
+    const draw = () => {
+      const box = $('[data-dchart="plug"]');
+      if (!box) return;
+      box.innerHTML = x && !p ? '<p class="empty">—: deze stekker meldde zich vandaag niet.</p>'
+        : dayChart(x && { hours }, { bars: [{ key: "w", color: "var(--huis)", label: "vandaag" }], tick: { key: "uw", label: "gewoonlijk" }, width: box.clientWidth, tipFmt: (v) => `${fmt[0].format(v)} W` });
+    };
+    return { title: `${plugLabel(name)} · ${l ? plain(power(l.w)) : "—"}`, body: rows([
+      ["Nu", l ? `${plain(power(l.w))} (gemeld om ${hm(l.time)})` : "—: meldde zich niet in de laatste 15 minuten"],
+      ["Vandaag", p && isNum(p.today_kwh) ? `${fmt[2].format(p.today_kwh)} kWh` : "—"],
+      ["Tegen gewoonlijk", sofar],
+      ["Meeste", peakHour(hours, "w", "W", 0)],
+      ["Aandeel", share],
+    ]) + chartBlock("plug", "Vandaag per uur", `${sq("var(--huis)", "vandaag")}${dash("gewoonlijk")}<span>W gemiddeld per uur</span>`) + rows([
+      ["Per uur", "het gemiddelde vermogen per uur, het lopende uur tot nu"],
+      ["Gewoonlijk", "per uur: de mediaan van hetzelfde uur over de laatste 14 dagen; tot nu: wat de stekker die dagen tot dezelfde tijd gebruikte (mediaan)"],
+      ["Periode", "nu: live, de stekker meldt zich op zijn eigen moment; per uur: vandaag 00:00 – nu, elke minuut nieuw"],
+      ["Bron", "Zigbee-meetstekker; zit al in het verbruik van het huis, niet erbovenop"],
+    ]) + '<p><a href="#" data-sheet="plugs">Alle stekkers ›</a></p>' + link("plugs", "Stekkers in Grafana"), after: draw };
   },
   opgewekt() {
     const t = state.today?.data;
@@ -844,13 +873,16 @@ function moneySheet(k, title) {
 }
 
 function openSheet(key) {
-  const make = SHEETS[key];
+  const i = key.indexOf(":"); // "plug:tv": the sheet "plug" for "tv"
+  const make = SHEETS[i < 0 ? key : key.slice(0, i)];
   if (!make) return;
-  const { title, body, after } = make();
+  const { title, body, after } = make(i < 0 ? undefined : key.slice(i + 1));
   $("#sheet-title").textContent = title;
   $("#sheet-body").innerHTML = body;
   const dlg = $("#sheet");
-  if (!dlg.open || dlg.dataset.key !== key) hideTip(); // a new sheet; a redraw of the same one keeps its label
+  // a new sheet (also one opened from inside another, e.g. a plug from Stekkers) starts at its top
+  // without a label; a redraw of the same one keeps both
+  if (!dlg.open || dlg.dataset.key !== key) { hideTip(); dlg.scrollTop = 0; }
   dlg.dataset.key = key;
   if (!dlg.open) dlg.showModal();
   after?.(); // drawn once the sheet is open, so a chart can take the sheet's real width
@@ -1836,7 +1868,8 @@ function peakHour(hours, key, u, d = 1) {
 // One chart for a day per hour. bars: [{key, color, neg}] (a neg bar goes below zero, e.g. export);
 // tick: {key} a dashed mark per hour (yesterday); line: {points: [{time, v}], color, unit} on its own
 // axis at the right (outdoor temperature). x runs over the whole day, so the rest of today is empty.
-function dayChart(day, { bars, tick, line, width, digits = 1 }) {
+// tipFmt formats a value in the hover/finger label (default: digits + 1 decimals).
+function dayChart(day, { bars, tick, line, width, digits = 1, tipFmt = (v) => fmt[digits + 1].format(v) }) {
   if (!day) return '<p class="empty">Laden…</p>';
   const hours = day.hours || [];
   const W = Math.max(300, Math.round(width || 600)), H = Math.round(Math.min(200, Math.max(150, W * 0.32)));
@@ -1846,7 +1879,7 @@ function dayChart(day, { bars, tick, line, width, digits = 1 }) {
   let bot0 = Math.max(0, ...vals(true));
   if (bot0 < top0 * 0.02) bot0 = 0; // a few Wh of export doesn't earn a band below zero
   const span = Math.max(top0 + bot0, 0.1);
-  const step = [0.05, 0.1, 0.25, 0.5, 1, 2, 2.5, 5, 10].find((s) => span / s <= 5) || 10;
+  const step = [0.05, 0.1, 0.25, 0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000].find((s) => span / s <= 5) || 1000; // W for a plug
   const top = Math.max(step, Math.ceil(top0 / step) * step), bot = Math.ceil(bot0 / step) * step;
   const y = (v) => T + ((top - v) / (top + bot)) * (H - T - B);
   const slot = (W - L - R) / hours.length;
@@ -1870,7 +1903,7 @@ function dayChart(day, { bars, tick, line, width, digits = 1 }) {
       return `<rect x="${f1(x)}" y="${f1(Math.min(y0, y1))}" width="${f1(bw - 1)}" height="${f1(Math.abs(y1 - y0))}" rx="1.5" fill="${b.color}"/>`;
     }).join("");
     const t = tick && isNum(h[tick.key]) && h[tick.key] > 0 ? `<line x1="${f1(cx - (n * bw) / 2 - 1)}" x2="${f1(cx + (n * bw) / 2)}" y1="${f1(y(h[tick.key]))}" y2="${f1(y(h[tick.key]))}" class="fc-tick"/>` : "";
-    const tip = [...bars.map((b) => `${b.label} ${isNum(h[b.key]) ? fmt[digits + 1].format(h[b.key]) : "—"}`), ...(tick ? [`${tick.label} ${isNum(h[tick.key]) ? fmt[digits + 1].format(h[tick.key]) : "—"}`] : [])].join(" · ");
+    const tip = [...bars.map((b) => `${b.label} ${isNum(h[b.key]) ? tipFmt(h[b.key]) : "—"}`), ...(tick ? [`${tick.label} ${isNum(h[tick.key]) ? tipFmt(h[tick.key]) : "—"}`] : [])].join(" · ");
     return `<g><title>${hourRange(h.hour)} · ${tip}</title><rect x="${f1(cx - slot / 2)}" y="${T}" width="${f1(slot)}" height="${H - T - B}" fill="transparent"/>${rects}${t}</g>${label}`;
   }).join("");
   let lineSvg = "";

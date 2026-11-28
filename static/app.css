@@ -320,6 +320,8 @@ body.walled .shell { display: none; }
 .tplugday td small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
 .tplugday .spark { width: 96px; height: 22px; display: inline-block; vertical-align: middle; }
 .tplugday td:first-of-type { white-space: nowrap; }
+.tplugday tr[data-sheet] { cursor: pointer; } /* a row opens that plug's sheet */
+.tplugday th button { font-weight: inherit; white-space: nowrap; }
 /* Meer: Uitleg spans both columns on a desktop, its terms in two columns */
 .gloss details { break-inside: avoid; }
 @media (min-width: 1000px) {
