@@ -18,6 +18,14 @@
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
 <link rel="stylesheet" href="/static/app.css">
 <script type="module" src="/static/app.js"></script>
+<!-- the modules app.js imports, fetched at once instead of after app.js has been read -->
+<link rel="modulepreload" href="/static/util.js">
+<link rel="modulepreload" href="/static/home.js">
+<link rel="modulepreload" href="/static/sheets.js">
+<link rel="modulepreload" href="/static/history.js">
+<link rel="modulepreload" href="/static/screens.js">
+<link rel="modulepreload" href="/static/detail.js">
+<link rel="modulepreload" href="/static/touch.js">
 </head>
 <body>
 <div class="shell" id="shell">

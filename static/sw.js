@@ -1,7 +1,7 @@
 // Service worker: keeps the app shell available offline. Live data is never cached here: the page
 // itself keeps the last values (marked "verouderd") when the server can't be reached.
-const SHELL = "energie-shell-v2"; // a new name drops the old cache on activate
-const FILES = ["/", "/static/app.css", "/static/app.js", "/manifest.webmanifest", "/static/icons/icon.svg", "/static/icons/icon-192.png"];
+const SHELL = "energie-shell-v3"; // a new name drops the old cache on activate
+const FILES = ["/", "/static/app.css", "/static/app.js", "/static/util.js", "/static/home.js", "/static/sheets.js", "/static/history.js", "/static/screens.js", "/static/detail.js", "/static/touch.js", "/manifest.webmanifest", "/static/icons/icon.svg", "/static/icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

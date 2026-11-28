@@ -43,6 +43,8 @@ check() { # name, path, expected substring
 check "health"     /healthz '"ok":true'
 check "page"       /         '<html lang="nl">'
 check "script"     /static/app.js 'EventSource'
+check "modules"    /static/sheets.js 'Hoe berekend'
+check "imports"    /static/app.js 'from "./sheets.js"'
 check "styles"     /static/app.css '--zon'
 check "manifest"   /manifest.webmanifest '"start_url"'
 check "worker"     /sw.js    'energie-shell'

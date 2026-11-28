@@ -108,7 +108,10 @@ while that screen is open.
   the live view every `LIVE_INTERVAL` seconds and the day views every `TODAY_INTERVAL` seconds, and
   pushes the result to all screens over Server-Sent Events. With no screen open it reads nothing.
 - **No build step.** Python (Starlette, uvicorn, psycopg 3) on the server; plain HTML, CSS and
-  JavaScript modules in the browser. The flow picture is SVG.
+  JavaScript modules in the browser. The flow picture is SVG. `static/app.js` is the module the page
+  loads (screen switch, tabs, the data stream, wall view, start); it imports `util.js` (helpers,
+  state), `home.js` (Thuis), `sheets.js` (the pop-ups), `history.js`, `screens.js` (Geld,
+  Contracten, Meer, Batterij), `detail.js` (day charts) and `touch.js` (chart values, swipe).
 - **Nothing runs for a page nobody sees.** After a minute hidden (another tab, a locked phone) the
   page closes its event stream and stops its timers, so the server stops reading (it reads only while
   a screen is connected); back in view it reconnects at once. The wall view stays live.
