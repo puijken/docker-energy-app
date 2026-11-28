@@ -91,8 +91,10 @@ new contract still happens in the source (see the deployment notes).
   the house that night.
 - **Status:** every source with when it last reported: the live ones from Thuis plus the
   background ones (PVOutput and Mindergas uploads and charge-card sessions as recorded by the
-  service that sends them, daily weather means, the database's scheduled jobs, the latest odometer
-  reading), and the warnings; a failed upload shows its error text.
+  service that sends them, the contract-price sync and the weekly summary as recorded by the job
+  that runs them (`upload_status` rows `prices` and `telegram`), daily weather means, the database's
+  scheduled jobs, the latest odometer reading), and the warnings; a failed upload or job shows its
+  error text.
 - **Uitleg:** a glossary of the terms the app uses, and links (contracts, wall view, Grafana).
 
 The screens switch by the address's `#hash` (`#batterij`, `#meer`); each screen's data is fetched only

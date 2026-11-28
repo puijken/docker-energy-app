@@ -119,10 +119,16 @@ export const watt = (x) => (isNum(x) ? unit(fmt[0].format(x), "W") : "—");
 export const daysAgo = (d) => (d ? Math.round((Date.parse(todayIso()) - Date.parse(d)) / 86400000) : null);
 const nowIso = () => new Date().toISOString();
 
-// energy-monitor's upload_status.detail is generic English (a public image): "8 session(s)",
-// "2026-11-27: 6741.186 m3". Said here in Dutch with the app's number format; anything else as is.
+// upload_status.detail is English (energy-monitor is a public image; the jobs print their own log
+// line): "8 session(s)", "2026-11-27: 6741.186 m3", "energy_prices: 3 contract(s) synced from
+// DSMR-reader", "telegram-week: sent week of 2026-11-23". Said here in Dutch with the app's number
+// format; anything else as is.
 function uploadDetail(t) {
-  let m = /^(\d+) session\(s\)$/.exec(t);
+  let m = /(\d+) contract\(s\) synced/.exec(t);
+  if (m) return `${m[1]} ${m[1] === "1" ? "contract" : "contracten"}`;
+  m = /sent week of (\d{4}-\d{2}-\d{2})$/.exec(t);
+  if (m) return `week van ${dmy(m[1])} verstuurd`;
+  m = /^(\d+) session\(s\)$/.exec(t);
   if (m) return `${m[1]} ${m[1] === "1" ? "sessie" : "sessies"}`;
   m = /^(\d{4}-\d{2}-\d{2}): ([\d.]+) m3$/.exec(t);
   if (m) return `stand ${dmy(m[1])}: ${fmt[3].format(Number(m[2]))} m³`;
@@ -132,8 +138,10 @@ function uploadDetail(t) {
 function backgroundSources() {
   const s = state.meer?.status;
   if (!s) return [];
-  // Uploads energy-monitor records after every attempt (upload_status): green when the last success
-  // is recent enough, a warning with the error text when not; grey "nog niet gemeld" without a row.
+  // Uploads energy-monitor records after every attempt, and the price sync and weekly Telegram of the
+  // jobs container (upload_status): green when the last success is recent enough, a warning with the
+  // error text when not; grey "nog niet gemeld" without a row (a job that hasn't run since it started
+  // reporting).
   const up = s.uploads || {};
   const upload = (key, name, limit) => {
     const u = up[key];
@@ -148,6 +156,8 @@ function backgroundSources() {
     upload("mindergas", "Mindergas", 26 * 3600),
     up.monta ? upload("monta", "Laadpas-sessies", 20 * 3600)
       : { name: "Laadpas-sessies", age: secondsBetween(nowIso(), s.monta_fetched), limit: 20 * 3600 },
+    upload("prices", "Contractprijzen", 26 * 3600),
+    upload("telegram", "Weekbericht Telegram", 7 * 86400 + 2 * 3600),
     { name: "Daggemiddelden KNMI", age: secondsBetween(nowIso(), s.knmi_fetched), limit: 20 * 3600, extra: s.knmi_day ? ` · t/m ${dmy(s.knmi_day)}` : "" },
   ];
   out.forEach((x) => { if ("limit" in x) { x.ok = isNum(x.age) && x.age <= x.limit; x.text = ago(x.age) + (x.extra || ""); } });
